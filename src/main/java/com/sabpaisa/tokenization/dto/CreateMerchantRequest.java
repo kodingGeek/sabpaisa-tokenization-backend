@@ -15,7 +15,7 @@ public class CreateMerchantRequest {
     @Email(message = "Email should be valid")
     private String email;
     
-    @Pattern(regexp = "^[+]?[0-9]{10,15}$", message = "Phone number should be valid")
+    @Pattern(regexp = "^$|^[+]?[0-9]{10,15}$", message = "Phone number should be valid")
     private String phoneNumber;
     
     @NotBlank(message = "Business type is required")
@@ -24,10 +24,10 @@ public class CreateMerchantRequest {
     @Size(max = 500, message = "Business address must not exceed 500 characters")
     private String businessAddress;
     
-    @Pattern(regexp = "^[A-Z]{5}[0-9]{4}[A-Z]$", message = "Invalid PAN number format")
+    @Pattern(regexp = "^$|^[A-Z]{5}[0-9]{4}[A-Z]$", message = "Invalid PAN number format")
     private String panNumber;
     
-    @Pattern(regexp = "^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$", message = "Invalid GST number format")
+    @Pattern(regexp = "^$|^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$", message = "Invalid GST number format")
     private String gstNumber;
     
     private String webhookUrl;
