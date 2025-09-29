@@ -5,6 +5,7 @@ import com.sabpaisa.tokenization.entity.Merchant;
 import com.sabpaisa.tokenization.repository.TokenRepository;
 import com.sabpaisa.tokenization.repository.MerchantRepository;
 import com.sabpaisa.tokenization.dto.TokenListResponse;
+import com.sabpaisa.tokenization.dto.TokenizationRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +17,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -28,6 +30,9 @@ public class TokenizationService {
     private final SecureRandom secureRandom;
     
     @Autowired
+    private FraudDetectionService fraudDetectionService;
+    
+    @Autowired
     public TokenizationService(TokenRepository tokenRepository, 
                               MerchantRepository merchantRepository) {
         this.tokenRepository = tokenRepository;
@@ -36,9 +41,16 @@ public class TokenizationService {
     }
     
     /**
-     * Tokenize a card number for a merchant
+     * Tokenize a card number for a merchant (without fraud detection)
      */
     public Token tokenizeCard(String cardNumber, String merchantId) {
+        return tokenizeCard(cardNumber, merchantId, null);
+    }
+    
+    /**
+     * Tokenize a card number for a merchant with fraud detection
+     */
+    public Token tokenizeCard(String cardNumber, String merchantId, Map<String, String> headers) {
         // Validate card number
         if (!isValidCardNumber(cardNumber)) {
             throw new IllegalArgumentException("Invalid card number");
@@ -47,6 +59,26 @@ public class TokenizationService {
         // Find merchant
         Merchant merchant = merchantRepository.findByMerchantId(merchantId)
             .orElseThrow(() -> new RuntimeException("Merchant not found"));
+        
+        // Run fraud detection if headers are provided
+        if (headers != null && fraudDetectionService != null) {
+            TokenizationRequest request = new TokenizationRequest();
+            request.setCardNumber(cardNumber);
+            request.setMerchantId(merchantId);
+            
+            FraudDetectionService.FraudDetectionResult fraudResult = 
+                fraudDetectionService.evaluateFraudRisk(request, headers);
+            
+            // Block if fraud detected
+            if ("BLOCK".equals(fraudResult.getDecision())) {
+                throw new RuntimeException("Transaction blocked due to fraud risk. Risk score: " + 
+                    fraudResult.getRiskScore() + ", Risk level: " + fraudResult.getRiskLevel());
+            }
+            
+            // Log fraud check result
+            System.out.println("Fraud check completed - Risk score: " + fraudResult.getRiskScore() + 
+                ", Decision: " + fraudResult.getDecision());
+        }
         
         // Hash the card number
         String cardHash = hashCard(cardNumber, merchant.getMerchantId());

@@ -5,6 +5,8 @@ import com.sabpaisa.tokenization.entity.Merchant;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
@@ -31,4 +33,10 @@ public interface TokenRepository extends JpaRepository<Token, Long> {
     long countByMerchantAndStatus(Merchant merchant, String status);
     
     long countByMerchantAndCreatedAtBetween(Merchant merchant, LocalDateTime start, LocalDateTime end);
+    
+    @Query("SELECT COUNT(t) FROM Token t WHERE t.merchant.merchantId = :merchantId AND t.createdAt > :after")
+    Integer countByMerchantIdAndCreatedAtAfter(@Param("merchantId") String merchantId, @Param("after") LocalDateTime after);
+    
+    @Query("SELECT COUNT(DISTINCT t.cardHash) FROM Token t WHERE t.merchant.merchantId = :merchantId AND t.createdAt > :after")
+    Integer countUniqueCardsByMerchantIdAndCreatedAtAfter(@Param("merchantId") String merchantId, @Param("after") LocalDateTime after);
 }
