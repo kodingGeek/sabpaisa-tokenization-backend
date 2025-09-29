@@ -7,6 +7,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.List;
 
@@ -24,4 +25,10 @@ public interface TokenRepository extends JpaRepository<Token, Long> {
     List<Token> findByMerchantAndStatus(Merchant merchant, String status);
     
     boolean existsByTokenValue(String tokenValue);
+    
+    long countByMerchant(Merchant merchant);
+    
+    long countByMerchantAndStatus(Merchant merchant, String status);
+    
+    long countByMerchantAndCreatedAtBetween(Merchant merchant, LocalDateTime start, LocalDateTime end);
 }

@@ -22,8 +22,26 @@ public class Merchant {
     @Column(nullable = false)
     private String email;
     
+    @Column(name = "phone_number")
+    private String phoneNumber;
+    
+    @Column(name = "business_type")
+    private String businessType;
+    
+    @Column(name = "business_address", length = 500)
+    private String businessAddress;
+    
+    @Column(name = "pan_number")
+    private String panNumber;
+    
+    @Column(name = "gst_number")
+    private String gstNumber;
+    
     @Column(nullable = false)
     private String status; // ACTIVE, SUSPENDED, INACTIVE
+    
+    @Column(name = "webhook_url")
+    private String webhookUrl;
     
     @Column(nullable = false)
     private String apiKey;
@@ -94,6 +112,46 @@ public class Merchant {
         this.email = email;
     }
     
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+    
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
+    }
+    
+    public String getBusinessType() {
+        return businessType;
+    }
+    
+    public void setBusinessType(String businessType) {
+        this.businessType = businessType;
+    }
+    
+    public String getBusinessAddress() {
+        return businessAddress;
+    }
+    
+    public void setBusinessAddress(String businessAddress) {
+        this.businessAddress = businessAddress;
+    }
+    
+    public String getPanNumber() {
+        return panNumber;
+    }
+    
+    public void setPanNumber(String panNumber) {
+        this.panNumber = panNumber;
+    }
+    
+    public String getGstNumber() {
+        return gstNumber;
+    }
+    
+    public void setGstNumber(String gstNumber) {
+        this.gstNumber = gstNumber;
+    }
+    
     public String getStatus() {
         return status;
     }
@@ -116,6 +174,14 @@ public class Merchant {
     
     public void setApiSecret(String apiSecret) {
         this.apiSecret = apiSecret;
+    }
+    
+    public String getWebhookUrl() {
+        return webhookUrl;
+    }
+    
+    public void setWebhookUrl(String webhookUrl) {
+        this.webhookUrl = webhookUrl;
     }
     
     public LocalDateTime getCreatedAt() {
