@@ -4,15 +4,20 @@ import com.sabpaisa.tokenization.entity.Token;
 import com.sabpaisa.tokenization.entity.Merchant;
 import com.sabpaisa.tokenization.repository.TokenRepository;
 import com.sabpaisa.tokenization.repository.MerchantRepository;
+import com.sabpaisa.tokenization.dto.TokenListResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -170,5 +175,44 @@ public class TokenizationService {
         int maskLength = cleaned.length() - 10;
         
         return first6 + "*".repeat(maskLength) + last4;
+    }
+    
+    /**
+     * Get all tokens with pagination and optional merchant filtering
+     */
+    public TokenListResponse getAllTokens(Pageable pageable, String merchantId) {
+        Page<Token> tokenPage;
+        
+        if (merchantId != null && !merchantId.isEmpty()) {
+            // Find merchant and get tokens for that merchant
+            Merchant merchant = merchantRepository.findByMerchantId(merchantId)
+                .orElseThrow(() -> new RuntimeException("Merchant not found"));
+            tokenPage = tokenRepository.findByMerchant(merchant, pageable);
+        } else {
+            // Get all tokens
+            tokenPage = tokenRepository.findAll(pageable);
+        }
+        
+        // Convert to response DTOs
+        List<TokenListResponse.TokenInfo> tokenInfos = tokenPage.getContent().stream()
+            .map(token -> new TokenListResponse.TokenInfo(
+                token.getTokenValue(),
+                token.getMaskedPan(),
+                token.getStatus(),
+                token.getMerchant().getMerchantId(),
+                token.getMerchant().getBusinessName(),
+                token.getUsageCount(),
+                token.getCreatedAt(),
+                token.getExpiresAt()
+            ))
+            .collect(Collectors.toList());
+        
+        return new TokenListResponse(
+            tokenInfos,
+            (int) tokenPage.getTotalElements(),
+            tokenPage.getTotalPages(),
+            tokenPage.getNumber(),
+            tokenPage.getSize()
+        );
     }
 }

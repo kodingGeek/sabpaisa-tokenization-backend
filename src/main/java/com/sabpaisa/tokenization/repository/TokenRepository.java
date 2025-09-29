@@ -2,6 +2,8 @@ package com.sabpaisa.tokenization.repository;
 
 import com.sabpaisa.tokenization.entity.Token;
 import com.sabpaisa.tokenization.entity.Merchant;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -16,6 +18,8 @@ public interface TokenRepository extends JpaRepository<Token, Long> {
     Optional<Token> findByCardHashAndMerchant(String cardHash, Merchant merchant);
     
     List<Token> findByMerchant(Merchant merchant);
+    
+    Page<Token> findByMerchant(Merchant merchant, Pageable pageable);
     
     List<Token> findByMerchantAndStatus(Merchant merchant, String status);
     

@@ -3,10 +3,14 @@ package com.sabpaisa.tokenization.controller;
 import com.sabpaisa.tokenization.dto.TokenizeRequest;
 import com.sabpaisa.tokenization.dto.TokenResponse;
 import com.sabpaisa.tokenization.dto.DetokenizeRequest;
+import com.sabpaisa.tokenization.dto.TokenListResponse;
 import com.sabpaisa.tokenization.entity.Token;
 import com.sabpaisa.tokenization.service.TokenizationService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -75,5 +79,26 @@ public class TokenizationController {
     @GetMapping("/health")
     public ResponseEntity<String> health() {
         return ResponseEntity.ok("Tokenization service is running");
+    }
+    
+    @GetMapping
+    @Operation(summary = "Get all tokens", description = "Retrieve all tokens with pagination and optional merchant filtering")
+    public ResponseEntity<TokenListResponse> getAllTokens(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "DESC") String sortDirection,
+            @RequestParam(required = false) String merchantId) {
+        
+        try {
+            Sort.Direction direction = Sort.Direction.fromString(sortDirection.toUpperCase());
+            Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+            
+            TokenListResponse response = tokenizationService.getAllTokens(pageable, merchantId);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new TokenListResponse());
+        }
     }
 }
