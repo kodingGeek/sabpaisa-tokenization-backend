@@ -28,7 +28,7 @@ spring:
       expiration: 86400000 # 24 hours in milliseconds
 
 server:
-  port: 8080
+  port: 8082
   error:
     include-message: always
     include-binding-errors: always

@@ -5,7 +5,10 @@ import com.sabpaisa.tokenization.dto.TokenResponse;
 import com.sabpaisa.tokenization.dto.DetokenizeRequest;
 import com.sabpaisa.tokenization.dto.TokenListResponse;
 import com.sabpaisa.tokenization.entity.Token;
+import com.sabpaisa.tokenization.entity.Merchant;
 import com.sabpaisa.tokenization.service.TokenizationService;
+import com.sabpaisa.tokenization.repository.MerchantRepository;
+import com.sabpaisa.tokenization.repository.TokenRepository;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
@@ -16,6 +19,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/tokens")
@@ -24,10 +29,16 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 public class TokenizationController {
     
     private final TokenizationService tokenizationService;
+    private final MerchantRepository merchantRepository;
+    private final TokenRepository tokenRepository;
     
     @Autowired
-    public TokenizationController(TokenizationService tokenizationService) {
+    public TokenizationController(TokenizationService tokenizationService,
+                                  MerchantRepository merchantRepository,
+                                  TokenRepository tokenRepository) {
         this.tokenizationService = tokenizationService;
+        this.merchantRepository = merchantRepository;
+        this.tokenRepository = tokenRepository;
     }
     
     @PostMapping("/tokenize")
@@ -99,6 +110,62 @@ public class TokenizationController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new TokenListResponse());
+        }
+    }
+    
+    @GetMapping("/merchant/{merchantId}")
+    @Operation(summary = "Get all tokens for a merchant", description = "Retrieve all tokens associated with a merchant")
+    public ResponseEntity<List<TokenResponse>> getTokensByMerchant(@PathVariable String merchantId) {
+        try {
+            // Find merchant
+            Merchant merchant = merchantRepository.findByMerchantId(merchantId)
+                .orElseThrow(() -> new RuntimeException("Merchant not found"));
+            
+            // Get all tokens for merchant
+            List<Token> tokens = tokenRepository.findByMerchant(merchant);
+            
+            // Convert to response DTOs
+            List<TokenResponse> responses = tokens.stream()
+                .map(token -> TokenResponse.success(
+                    token.getTokenValue(),
+                    token.getMaskedPan(),
+                    token.getStatus(),
+                    token.getExpiresAt()
+                ))
+                .collect(Collectors.toList());
+            
+            return ResponseEntity.ok(responses);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+        }
+    }
+    
+    @GetMapping("/merchant/{merchantId}/status/{status}")
+    @Operation(summary = "Get tokens by status", description = "Retrieve all tokens for a merchant with specific status")
+    public ResponseEntity<List<TokenResponse>> getTokensByMerchantAndStatus(
+            @PathVariable String merchantId,
+            @PathVariable String status) {
+        try {
+            // Find merchant
+            Merchant merchant = merchantRepository.findByMerchantId(merchantId)
+                .orElseThrow(() -> new RuntimeException("Merchant not found"));
+            
+            // Get tokens by status
+            List<Token> tokens = tokenRepository.findByMerchantAndStatus(merchant, status);
+            
+            // Convert to response DTOs
+            List<TokenResponse> responses = tokens.stream()
+                .map(token -> TokenResponse.success(
+                    token.getTokenValue(),
+                    token.getMaskedPan(),
+                    token.getStatus(),
+                    token.getExpiresAt()
+                ))
+                .collect(Collectors.toList());
+            
+            return ResponseEntity.ok(responses);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
         }
     }
 }

@@ -117,7 +117,9 @@ public class MerchantController {
     @GetMapping("/business-types")
     @Operation(summary = "Get business types", description = "Get list of supported business types")
     public ResponseEntity<String[]> getBusinessTypes() {
-        String[] types = {"RETAIL", "ECOMMERCE", "SERVICES", "HOSPITALITY", "HEALTHCARE", "EDUCATION", "OTHER"};
+        String[] types = {"E-Commerce", "Retail", "Healthcare", "Education", "Travel", 
+                         "Food & Beverage", "Entertainment", "Utilities", "Financial Services", 
+                         "Technology", "Other"};
         return ResponseEntity.ok(types);
     }
 }

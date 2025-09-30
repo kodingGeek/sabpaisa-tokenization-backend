@@ -3,10 +3,13 @@ spring:
     name: tokenization-service
     
   datasource:
-    url: jdbc:postgresql://localhost:5432/sabpaisa_tokenization
+    url: jdbc:postgresql://postgres:5432/sabpaisa_tokenization
     username: postgres
     password: password
     driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 30000
+      maximum-pool-size: 10
     
   jpa:
     hibernate:
@@ -15,10 +18,10 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
-    show-sql: true
+    show-sql: false
     
   redis:
-    host: localhost
+    host: redis
     port: 6379
     timeout: 10s
     
@@ -42,6 +45,13 @@ springdoc:
     
 logging:
   level:
-    com.sabpaisa.tokenization: DEBUG
+    com.sabpaisa.tokenization: INFO
     org.springframework.web: INFO
-    org.hibernate: INFO
+    org.hibernate: WARN
+    
+# Application specific configurations
+app:
+  cors:
+    allowed-origins: "*"
+    allowed-methods: "*"
+    allowed-headers: "*"

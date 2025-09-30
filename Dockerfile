@@ -1,11 +1,33 @@
-FROM maven:3.9.0-eclipse-temurin-17 AS build
+# Build stage
+FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
 COPY pom.xml .
+RUN mvn dependency:go-offline
 COPY src ./src
 RUN mvn clean package -DskipTests
 
+# Runtime stage
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+
+# Add wait-for-it script to wait for database
+RUN apk add --no-cache bash curl postgresql-client
+
+# Create a simple wait script
+RUN echo '#!/bin/bash' > /wait-for-postgres.sh && \
+    echo 'until pg_isready -h postgres -p 5432 -U postgres; do' >> /wait-for-postgres.sh && \
+    echo '  echo "Waiting for PostgreSQL..."' >> /wait-for-postgres.sh && \
+    echo '  sleep 2' >> /wait-for-postgres.sh && \
+    echo 'done' >> /wait-for-postgres.sh && \
+    echo 'echo "PostgreSQL is ready!"' >> /wait-for-postgres.sh && \
+    chmod +x /wait-for-postgres.sh
+
+EXPOSE 8082
+
+# Set environment variables for Spring Boot
+ENV SPRING_PROFILES_ACTIVE=docker
+ENV JAVA_OPTS="-Xmx512m -Xms256m"
+
+# Run the application after waiting for PostgreSQL
+ENTRYPOINT ["/bin/bash", "-c", "/wait-for-postgres.sh && java $JAVA_OPTS -jar app.jar"]
