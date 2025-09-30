@@ -58,6 +58,10 @@ public class Merchant {
     @OneToMany(mappedBy = "merchant", cascade = CascadeType.ALL)
     private Set<Token> tokens = new HashSet<>();
     
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "pricing_plan_id")
+    private com.sabpaisa.tokenization.domain.entity.PricingPlan pricingPlan;
+    
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
@@ -206,5 +210,13 @@ public class Merchant {
     
     public void setTokens(Set<Token> tokens) {
         this.tokens = tokens;
+    }
+    
+    public com.sabpaisa.tokenization.domain.entity.PricingPlan getPricingPlan() {
+        return pricingPlan;
+    }
+    
+    public void setPricingPlan(com.sabpaisa.tokenization.domain.entity.PricingPlan pricingPlan) {
+        this.pricingPlan = pricingPlan;
     }
 }
