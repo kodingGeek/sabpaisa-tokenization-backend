@@ -94,12 +94,14 @@ public class MultiCloudController {
                 "Token replicated successfully" : 
                 "Replication partially failed";
             
-            return ResponseEntity.ok(new ApiResponse(result.isSuccess(), message, data));
+            return ResponseEntity.ok(result.isSuccess() ?
+                ApiResponse.success(message, data) :
+                ApiResponse.error(message));
             
         } catch (Exception e) {
             logger.error("Replication failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Replication failed: " + e.getMessage(), null));
+                .body(ApiResponse.error("Replication failed: " + e.getMessage()));
         }
     }
     
@@ -118,7 +120,7 @@ public class MultiCloudController {
             
             if (!result.isSuccess()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(new ApiResponse(false, "Token not found in any cloud", null));
+                    .body(ApiResponse.error("Token not found in any cloud"));
             }
             
             Map<String, Object> data = new HashMap<>();
@@ -127,8 +129,7 @@ public class MultiCloudController {
             data.put("attemptCount", result.getAttemptCount());
             data.put("retrieved", true);
             
-            return ResponseEntity.ok(new ApiResponse(
-                true,
+            return ResponseEntity.ok(ApiResponse.success(
                 "Token retrieved from " + result.getSourceProvider(),
                 data
             ));
@@ -136,7 +137,7 @@ public class MultiCloudController {
         } catch (Exception e) {
             logger.error("Retrieval failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Retrieval failed: " + e.getMessage(), null));
+                .body(ApiResponse.error("Retrieval failed: " + e.getMessage()));
         }
     }
     
@@ -162,12 +163,14 @@ public class MultiCloudController {
                 String.format("Token deleted from %d of %d clouds", 
                     result.getSuccessCount(), result.getTotalCount());
             
-            return ResponseEntity.ok(new ApiResponse(result.isFullyDeleted(), message, data));
+            return ResponseEntity.ok(result.isFullyDeleted() ? 
+                ApiResponse.success(message, data) : 
+                ApiResponse.error(message));
             
         } catch (Exception e) {
             logger.error("Deletion failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Deletion failed: " + e.getMessage(), null));
+                .body(ApiResponse.error("Deletion failed: " + e.getMessage()));
         }
     }
     
@@ -181,8 +184,7 @@ public class MultiCloudController {
         try {
             multiCloudService.synchronizeAcrossClouds();
             
-            return ResponseEntity.ok(new ApiResponse(
-                true,
+            return ResponseEntity.ok(ApiResponse.success(
                 "Synchronization initiated successfully",
                 null
             ));
@@ -190,7 +192,7 @@ public class MultiCloudController {
         } catch (Exception e) {
             logger.error("Synchronization failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Synchronization failed: " + e.getMessage(), null));
+                .body(ApiResponse.error("Synchronization failed: " + e.getMessage()));
         }
     }
     
@@ -260,7 +262,7 @@ public class MultiCloudController {
     private Merchant createMockMerchant() {
         Merchant merchant = new Merchant();
         merchant.setMerchantId("MERCH-001");
-        merchant.setMerchantName("Test Merchant");
+        merchant.setBusinessName("Test Merchant");
         return merchant;
     }
 }

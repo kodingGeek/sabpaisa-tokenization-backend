@@ -10,7 +10,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -319,7 +319,7 @@ public class MultiCloudReplicationService {
             
             EncryptedTokenData encrypted = new EncryptedTokenData();
             encrypted.setTokenId(token.getId().toString());
-            encrypted.setEncryptedData(encryptedData);
+            encrypted.setEncryptedData(Base64.getEncoder().encodeToString(encryptedData));
             encrypted.setIv(iv);
             encrypted.setAlgorithm("AES-256-GCM");
             encrypted.setTimestamp(LocalDateTime.now());
@@ -337,7 +337,7 @@ public class MultiCloudReplicationService {
             GCMParameterSpec spec = new GCMParameterSpec(128, encryptedData.getIv());
             cipher.init(Cipher.DECRYPT_MODE, cloudEncryptionKey, spec);
             
-            byte[] decryptedData = cipher.doFinal(encryptedData.getEncryptedData());
+            byte[] decryptedData = cipher.doFinal(Base64.getDecoder().decode(encryptedData.getEncryptedData()));
             String tokenData = new String(decryptedData);
             
             return deserializeToken(tokenData);
@@ -355,7 +355,7 @@ public class MultiCloudReplicationService {
             // Add cloud-specific metadata
             Map<String, String> metadata = new HashMap<>();
             metadata.put("merchantId", merchant.getMerchantId());
-            metadata.put("merchantName", merchant.getMerchantName());
+            metadata.put("merchantName", merchant.getBusinessName());
             metadata.put("replicationTime", LocalDateTime.now().toString());
             metadata.put("sourceRegion", getCurrentRegion());
             

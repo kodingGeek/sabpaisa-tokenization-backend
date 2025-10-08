@@ -29,5 +29,5 @@ EXPOSE 8082
 ENV SPRING_PROFILES_ACTIVE=docker
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
 
-# Run the application after waiting for PostgreSQL
-ENTRYPOINT ["/bin/bash", "-c", "/wait-for-postgres.sh && java $JAVA_OPTS -jar app.jar"]
+# Run the application directly
+ENTRYPOINT ["java", "-jar", "app.jar"]

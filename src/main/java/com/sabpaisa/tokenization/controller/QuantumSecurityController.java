@@ -105,11 +105,11 @@ public class QuantumSecurityController {
     public ResponseEntity<ApiResponse> rotateQuantumKeys(@PathVariable String merchantId) {
         try {
             quantumVaultService.rotateQuantumKeys(merchantId);
-            return ResponseEntity.ok(new ApiResponse(true, 
+            return ResponseEntity.ok(ApiResponse.success(
                 "Quantum keys rotated successfully for merchant: " + merchantId, null));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(
-                new ApiResponse(false, "Key rotation failed: " + e.getMessage(), null)
+                ApiResponse.error("Key rotation failed: " + e.getMessage())
             );
         }
     }

@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import java.security.MessageDigest;
 
 @Service
 public class FraudDetectionService {
@@ -115,7 +116,9 @@ public class FraudDetectionService {
         }
         
         // Create audit log
-        auditLogService.logFraudCheck(event, request);
+        auditLogService.logSecurityEvent("FRAUD_CHECK", 
+            String.format("Fraud check for merchant %s - Risk: %s, Decision: %s", 
+                request.getMerchantId(), event.getRiskLevel(), event.getDecision()));
         
         return new FraudDetectionResult(
             event.getEventId(),
@@ -449,13 +452,20 @@ public class FraudDetectionService {
     
     private String generateDeviceFingerprint(Map<String, String> headers) {
         // Generate a simple device fingerprint based on headers
-        String userAgent = headers.getOrDefault("User-Agent", "");
-        String acceptLanguage = headers.getOrDefault("Accept-Language", "");
-        String acceptEncoding = headers.getOrDefault("Accept-Encoding", "");
+        String userAgent = headers.getOrDefault("User-Agent", "unknown");
+        String acceptLanguage = headers.getOrDefault("Accept-Language", "en");
+        String acceptEncoding = headers.getOrDefault("Accept-Encoding", "gzip");
         
-        return Base64.getEncoder().encodeToString(
-            (userAgent + acceptLanguage + acceptEncoding).getBytes()
-        ).substring(0, 16);
+        String combined = userAgent + acceptLanguage + acceptEncoding;
+        String encoded = Base64.getEncoder().encodeToString(combined.getBytes());
+        
+        // Ensure we have at least 16 characters
+        if (encoded.length() < 16) {
+            // Pad with consistent characters if too short
+            encoded = encoded + "0000000000000000";
+        }
+        
+        return encoded.substring(0, 16);
     }
     
     private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {

@@ -31,6 +31,7 @@ public class TokenListResponse {
         private int usageCount;
         private LocalDateTime createdAt;
         private LocalDateTime expiresAt;
+        private String tokenizationMode;
         
         // Constructors
         public TokenInfo() {}
@@ -72,6 +73,9 @@ public class TokenListResponse {
         
         public LocalDateTime getExpiresAt() { return expiresAt; }
         public void setExpiresAt(LocalDateTime expiresAt) { this.expiresAt = expiresAt; }
+        
+        public String getTokenizationMode() { return tokenizationMode; }
+        public void setTokenizationMode(String tokenizationMode) { this.tokenizationMode = tokenizationMode; }
     }
     
     // Getters and setters

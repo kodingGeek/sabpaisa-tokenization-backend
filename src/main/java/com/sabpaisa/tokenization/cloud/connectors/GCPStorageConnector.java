@@ -1,7 +1,7 @@
 package com.sabpaisa.tokenization.cloud.connectors;
 
 import com.sabpaisa.tokenization.cloud.CloudConnector;
-import com.sabpaisa.tokenization.cloud.CloudDataStructures.EncryptedTokenData;
+import com.sabpaisa.tokenization.cloud.EncryptedTokenData;
 import com.sabpaisa.tokenization.cloud.CloudStorageException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -122,7 +122,7 @@ public class FraudDetectionController {
             updateRuleEffectiveness(event.getTriggeredRules());
         }
         
-        return ResponseEntity.ok(new ApiResponse(true, "Event reviewed successfully", null));
+        return ResponseEntity.ok(ApiResponse.success("Event reviewed successfully", null));
     }
     
     // Rule management endpoints
@@ -184,7 +184,7 @@ public class FraudDetectionController {
     public ResponseEntity<ApiResponse> deleteRule(@PathVariable Long ruleId) {
         if (ruleRepository.existsById(ruleId)) {
             ruleRepository.deleteById(ruleId);
-            return ResponseEntity.ok(new ApiResponse(true, "Rule deleted successfully", null));
+            return ResponseEntity.ok(ApiResponse.success("Rule deleted successfully", null));
         }
         return ResponseEntity.notFound().build();
     }
@@ -305,7 +305,7 @@ public class FraudDetectionController {
     public ResponseEntity<ApiResponse> initializeDefaultRules() {
         List<FraudDetectionRule> defaultRules = createDefaultRules();
         ruleRepository.saveAll(defaultRules);
-        return ResponseEntity.ok(new ApiResponse(true, 
+        return ResponseEntity.ok(ApiResponse.success(
             "Initialized " + defaultRules.size() + " default fraud detection rules", null));
     }
     

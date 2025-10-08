@@ -1,6 +1,7 @@
 package com.sabpaisa.tokenization.dto;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 public class TokenResponse {
     
@@ -10,6 +11,9 @@ public class TokenResponse {
     private LocalDateTime expiresAt;
     private boolean success;
     private String message;
+    private String tokenizationMode;
+    private Map<String, String> metadata;
+    private Integer usageCount;
     
     // Constructors
     public TokenResponse() {}
@@ -81,5 +85,29 @@ public class TokenResponse {
     
     public void setMessage(String message) {
         this.message = message;
+    }
+    
+    public String getTokenizationMode() {
+        return tokenizationMode;
+    }
+    
+    public void setTokenizationMode(String tokenizationMode) {
+        this.tokenizationMode = tokenizationMode;
+    }
+    
+    public Map<String, String> getMetadata() {
+        return metadata;
+    }
+    
+    public void setMetadata(Map<String, String> metadata) {
+        this.metadata = metadata;
+    }
+    
+    public Integer getUsageCount() {
+        return usageCount;
+    }
+    
+    public void setUsageCount(Integer usageCount) {
+        this.usageCount = usageCount;
     }
 }

@@ -504,7 +504,15 @@ public class BiometricTokenizationService {
             MessageDigest digest = MessageDigest.getInstance("SHA3-256");
             
             if (profile.getFacialTemplate() != null) {
-                digest.update(profile.getFacialTemplate().getFeatureVector());
+                // Convert float[] to byte[]
+                float[] features = profile.getFacialTemplate().getFeatureVector();
+                if (features != null) {
+                    ByteBuffer buffer = ByteBuffer.allocate(features.length * 4);
+                    for (float f : features) {
+                        buffer.putFloat(f);
+                    }
+                    digest.update(buffer.array());
+                }
             }
             if (profile.getFingerprintTemplate() != null) {
                 digest.update(ByteBuffer.allocate(4).putInt(

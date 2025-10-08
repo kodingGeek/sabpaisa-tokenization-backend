@@ -2,6 +2,8 @@ package com.sabpaisa.tokenization.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 
 @Entity
 @Table(name = "tokens")
@@ -38,6 +40,15 @@ public class Token {
     
     @Column(name = "usage_count")
     private Integer usageCount = 0;
+    
+    @Column(name = "tokenization_mode")
+    private String tokenizationMode = "STANDARD"; // STANDARD, BIOMETRIC, QUANTUM, CLOUD_REPLICATED, HYBRID
+    
+    @ElementCollection
+    @CollectionTable(name = "token_metadata", joinColumns = @JoinColumn(name = "token_id"))
+    @MapKeyColumn(name = "metadata_key")
+    @Column(name = "metadata_value")
+    private Map<String, String> metadata = new HashMap<>();
     
     @PrePersist
     protected void onCreate() {
@@ -143,5 +154,21 @@ public class Token {
     public void incrementUsageCount() {
         this.usageCount++;
         this.lastUsedAt = LocalDateTime.now();
+    }
+    
+    public String getTokenizationMode() {
+        return tokenizationMode;
+    }
+    
+    public void setTokenizationMode(String tokenizationMode) {
+        this.tokenizationMode = tokenizationMode;
+    }
+    
+    public Map<String, String> getMetadata() {
+        return metadata;
+    }
+    
+    public void setMetadata(Map<String, String> metadata) {
+        this.metadata = metadata;
     }
 }

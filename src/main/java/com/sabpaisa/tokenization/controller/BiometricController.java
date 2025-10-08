@@ -10,7 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -49,16 +49,14 @@ public class BiometricController {
             data.put("qualityScores", result.getQualityScores());
             data.put("securityLevel", result.getSecurityLevel());
             
-            return ResponseEntity.ok(new ApiResponse(
-                result.isSuccess(),
-                result.getMessage() != null ? result.getMessage() : "Biometric enrollment successful",
-                data
-            ));
+            return ResponseEntity.ok(result.isSuccess() ?
+                ApiResponse.success(result.getMessage() != null ? result.getMessage() : "Biometric enrollment successful", data) :
+                ApiResponse.error(result.getMessage() != null ? result.getMessage() : "Biometric enrollment failed"));
             
         } catch (Exception e) {
             logger.error("Biometric enrollment failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Biometric enrollment failed: " + e.getMessage(), null));
+                .body(ApiResponse.error("Biometric enrollment failed: " + e.getMessage()));
         }
     }
     
@@ -80,8 +78,7 @@ public class BiometricController {
             data.put("securityLevel", result.getSecurityLevel());
             data.put("expiresAt", result.getExpiresAt());
             
-            return ResponseEntity.ok(new ApiResponse(
-                true,
+            return ResponseEntity.ok(ApiResponse.success(
                 "Biometric token created successfully",
                 data
             ));
@@ -89,11 +86,11 @@ public class BiometricController {
         } catch (SecurityException e) {
             logger.error("Biometric authentication failed", e);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(new ApiResponse(false, "Biometric authentication failed", null));
+                .body(ApiResponse.error("Biometric authentication failed"));
         } catch (Exception e) {
             logger.error("Biometric token creation failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Token creation failed: " + e.getMessage(), null));
+                .body(ApiResponse.error("Token creation failed: " + e.getMessage()));
         }
     }
     
@@ -114,7 +111,7 @@ public class BiometricController {
             
             if (!result.isSuccess()) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(new ApiResponse(false, result.getReason(), null));
+                    .body(ApiResponse.error(result.getReason()));
             }
             
             Map<String, Object> data = new HashMap<>();
@@ -122,8 +119,7 @@ public class BiometricController {
             data.put("authenticationScore", result.getAuthenticationScore());
             data.put("usedModalities", result.getUsedModalities());
             
-            return ResponseEntity.ok(new ApiResponse(
-                true,
+            return ResponseEntity.ok(ApiResponse.success(
                 "Token retrieved successfully",
                 data
             ));
@@ -131,7 +127,7 @@ public class BiometricController {
         } catch (Exception e) {
             logger.error("Token retrieval failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Token retrieval failed: " + e.getMessage(), null));
+                .body(ApiResponse.error("Token retrieval failed: " + e.getMessage()));
         }
     }
     
@@ -162,12 +158,14 @@ public class BiometricController {
                 "Biometric authentication failed: " + result.getReason();
             
             return ResponseEntity.status(status)
-                .body(new ApiResponse(result.isAuthenticated(), message, data));
+                .body(result.isAuthenticated() ? 
+                    ApiResponse.success(message, data) : 
+                    ApiResponse.error(message));
             
         } catch (Exception e) {
             logger.error("Biometric authentication error", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Authentication error: " + e.getMessage(), null));
+                .body(ApiResponse.error("Authentication error: " + e.getMessage()));
         }
     }
     
@@ -187,8 +185,7 @@ public class BiometricController {
             status.put("lastAuthentication", "2025-01-29T10:30:00");
             status.put("authenticationCount", 42);
             
-            return ResponseEntity.ok(new ApiResponse(
-                true,
+            return ResponseEntity.ok(ApiResponse.success(
                 "Enrollment status retrieved",
                 status
             ));
@@ -196,7 +193,7 @@ public class BiometricController {
         } catch (Exception e) {
             logger.error("Failed to get enrollment status", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Failed to retrieve status: " + e.getMessage(), null));
+                .body(ApiResponse.error("Failed to retrieve status: " + e.getMessage()));
         }
     }
     
@@ -217,8 +214,7 @@ public class BiometricController {
             data.put("updated", true);
             data.put("newModalities", updateRequest.getFacialData() != null ? "FACIAL" : "NONE");
             
-            return ResponseEntity.ok(new ApiResponse(
-                true,
+            return ResponseEntity.ok(ApiResponse.success(
                 "Biometric enrollment updated successfully",
                 data
             ));
@@ -226,7 +222,7 @@ public class BiometricController {
         } catch (Exception e) {
             logger.error("Failed to update enrollment", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Update failed: " + e.getMessage(), null));
+                .body(ApiResponse.error("Update failed: " + e.getMessage()));
         }
     }
     
@@ -239,8 +235,7 @@ public class BiometricController {
         
         try {
             // In production, would delete from repository
-            return ResponseEntity.ok(new ApiResponse(
-                true,
+            return ResponseEntity.ok(ApiResponse.success(
                 "Biometric enrollment deleted successfully",
                 null
             ));
@@ -248,7 +243,7 @@ public class BiometricController {
         } catch (Exception e) {
             logger.error("Failed to delete enrollment", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Deletion failed: " + e.getMessage(), null));
+                .body(ApiResponse.error("Deletion failed: " + e.getMessage()));
         }
     }
     
@@ -319,16 +314,15 @@ public class BiometricController {
                 "Challenge-response"
             });
             
-            return ResponseEntity.ok(new ApiResponse(
-                isLive,
-                isLive ? "Liveness detection passed" : "Liveness detection failed",
-                result
-            ));
+            return ResponseEntity.ok(isLive ?
+                ApiResponse.success("Liveness detection passed", result) :
+                ApiResponse.error("Liveness detection failed")
+            );
             
         } catch (Exception e) {
             logger.error("Liveness detection test failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiResponse(false, "Test failed: " + e.getMessage(), null));
+                .body(ApiResponse.error("Test failed: " + e.getMessage()));
         }
     }
 }
