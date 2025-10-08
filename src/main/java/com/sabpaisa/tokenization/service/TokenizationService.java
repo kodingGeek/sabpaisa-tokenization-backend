@@ -177,6 +177,13 @@ public class TokenizationService {
     }
     
     /**
+     * Generate unique token value (public method for other services)
+     */
+    public String generateTokenValue() {
+        return generateUniqueToken();
+    }
+    
+    /**
      * Generate unique token value
      */
     private String generateUniqueToken() {
