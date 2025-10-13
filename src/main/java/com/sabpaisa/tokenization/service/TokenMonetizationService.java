@@ -1,6 +1,7 @@
 package com.sabpaisa.tokenization.service;
 
 import com.sabpaisa.tokenization.domain.entity.*;
+import com.sabpaisa.tokenization.entity.Merchant;
 import com.sabpaisa.tokenization.presentation.dto.*;
 import com.sabpaisa.tokenization.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -44,7 +45,7 @@ public class TokenMonetizationService {
         log.info("Starting monthly billing generation");
         LocalDate billingMonth = LocalDate.now().minusMonths(1);
         
-        List<Merchant> activeMerchants = merchantRepository.findAllActive();
+        List<Merchant> activeMerchants = merchantRepository.findAll();
         
         for (Merchant merchant : activeMerchants) {
             try {
@@ -106,19 +107,19 @@ public class TokenMonetizationService {
         
         // Count tokens created in the billing period
         stats.setTotalTokensCreated(
-            tokenRepository.countTokensCreatedInPeriod(merchant.getId(), startDate, endDate));
+            tokenRepository.countTokensCreatedInPeriod(merchant.getMerchantId(), startDate, endDate));
         
         // Count active tokens at end of period
         stats.setTotalActiveTokens(
-            tokenRepository.countActiveTokensByMerchant(merchant.getId(), endDate));
+            tokenRepository.countActiveTokensByMerchant(merchant.getMerchantId(), endDate));
         
         // Count transactions in period
         stats.setTotalTransactions(
-            tokenUsageRepository.countTransactionsInPeriod(merchant.getId(), startDate, endDate));
+            tokenUsageRepository.countTransactionsInPeriod(merchant.getMerchantId(), startDate, endDate));
         
         // Platform-wise breakdown
         Map<String, Long> platformBreakdown = tokenRepository
-            .getTokenCountByPlatform(merchant.getId(), startDate, endDate);
+            .getTokenCountByPlatform(merchant.getMerchantId(), startDate, endDate);
         stats.setPlatformBreakdown(platformBreakdown);
         
         return stats;
@@ -182,7 +183,7 @@ public class TokenMonetizationService {
     }
     
     public BillingDashboardResponse getMerchantBillingDashboard(String merchantId) {
-        Merchant merchant = merchantRepository.findById(merchantId)
+        Merchant merchant = merchantRepository.findByMerchantId(merchantId)
             .orElseThrow(() -> new RuntimeException("Merchant not found"));
         
         BillingDashboardResponse response = new BillingDashboardResponse();
@@ -216,7 +217,7 @@ public class TokenMonetizationService {
         LocalDate startDate = endDate.minusMonths(12);
         
         List<MonthlyUsage> monthlyUsages = tokenUsageRepository
-            .getMonthlyUsageTrends(merchant.getId(), startDate, endDate);
+            .getMonthlyUsageTrends(merchant.getMerchantId(), startDate, endDate);
         
         trends.setMonthlyUsages(monthlyUsages);
         
