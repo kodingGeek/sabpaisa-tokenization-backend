@@ -45,3 +45,31 @@ logging:
     com.sabpaisa.tokenization: DEBUG
     org.springframework.web: INFO
     org.hibernate: INFO
+
+# Application specific properties
+app:
+  # Encryption configuration
+  encryption:
+    enabled: true
+    master-key: JSkxTjC7p8YhQ2HvWlFqZlK8mVjN9XrBcDfGhJkMnPqTsUvWxYz
+    exclude-paths: /health,/actuator/**,/swagger-ui/**,/v3/api-docs/**
+  
+  # Notification configuration
+  notification:
+    enabled: true
+    from-email: noreply@sabpaisa.com
+  
+  # SMS configuration
+  sms:
+    provider: mock # Options: mock, twilio, aws-sns, textlocal
+    api-key: ${SMS_API_KEY:}
+    sender-id: SBPAIS
+  
+  # Monetization configuration
+  monetization:
+    enabled: true
+    free-tier-tokens: 1000
+  
+  # Scheduled tasks
+  scheduling:
+    enabled: true

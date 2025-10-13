@@ -211,7 +211,7 @@ public class UnifiedTokenizationService {
         
         // Create and save token
         Token token = new Token(tokenValue, maskedPan, cardHash, merchant);
-        token.setTokenizationMode("STANDARD");
+        token.setAlgorithmType("STANDARD");
         return tokenRepository.save(token);
     }
     
@@ -223,7 +223,7 @@ public class UnifiedTokenizationService {
         
         // First create standard token
         Token token = tokenizeStandard(cardNumber, merchant);
-        token.setTokenizationMode("BIOMETRIC");
+        token.setAlgorithmType("BIOMETRIC");
         
         // Add biometric protection if biometric data is provided
         if (options != null && options.containsKey("biometricData")) {
@@ -243,7 +243,7 @@ public class UnifiedTokenizationService {
         
         // Create standard token
         Token token = tokenizeStandard(cardNumber, merchant);
-        token.setTokenizationMode("QUANTUM");
+        token.setAlgorithmType("QUANTUM");
         
         // Store sensitive data in quantum vault
         String vaultId = quantumVaultService.storeInQuantumVault(token, cardNumber);
@@ -261,7 +261,7 @@ public class UnifiedTokenizationService {
         
         // Create standard token
         Token token = tokenizeStandard(cardNumber, merchant);
-        token.setTokenizationMode("CLOUD_REPLICATED");
+        token.setAlgorithmType("CLOUD_REPLICATED");
         
         // Replicate to cloud providers
         cloudReplicationService.replicateToken(token, merchant);
@@ -274,7 +274,7 @@ public class UnifiedTokenizationService {
     private Token tokenizeHybrid(String cardNumber, Merchant merchant, Map<String, Object> options) {
         // Create token with multiple protection layers
         Token token = tokenizeStandard(cardNumber, merchant);
-        token.setTokenizationMode("HYBRID");
+        token.setAlgorithmType("HYBRID");
         
         // Apply all available protections
         if (biometricService != null && options != null && options.containsKey("biometricData")) {
@@ -381,7 +381,7 @@ public class UnifiedTokenizationService {
         info.setUsageCount(token.getUsageCount());
         info.setCreatedAt(token.getCreatedAt());
         info.setExpiresAt(token.getExpiresAt());
-        info.setTokenizationMode(token.getTokenizationMode());
+        info.setTokenizationMode(token.getAlgorithmType());
         return info;
     }
     
@@ -394,7 +394,7 @@ public class UnifiedTokenizationService {
         response.put("createdAt", token.getCreatedAt());
         response.put("expiresAt", token.getExpiresAt());
         response.put("usageCount", token.getUsageCount());
-        response.put("tokenizationMode", token.getTokenizationMode());
+        response.put("tokenizationMode", token.getAlgorithmType());
         response.put("metadata", token.getMetadata());
         return response;
     }

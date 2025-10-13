@@ -1,5 +1,6 @@
 package com.sabpaisa.tokenization.domain.entity;
 
+import com.sabpaisa.tokenization.entity.Merchant;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;

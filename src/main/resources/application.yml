@@ -51,7 +51,7 @@ app:
   # Encryption configuration
   encryption:
     enabled: true
-    master-key: # Generate with AesGcmEncryptionService.generateNewKey()
+    master-key: JSkxTjC7p8YhQ2HvWlFqZlK8mVjN9XrBcDfGhJkMnPqTsUvWxYz
     exclude-paths: /health,/actuator/**,/swagger-ui/**,/v3/api-docs/**
   
   # Notification configuration

@@ -84,7 +84,7 @@ public class UnifiedTokenizationController {
             );
             
             // Add mode and metadata to response
-            response.setTokenizationMode(token.getTokenizationMode());
+            response.setTokenizationMode(token.getAlgorithmType());
             response.setMetadata(token.getMetadata());
             
             return ResponseEntity.ok(response);
@@ -185,7 +185,7 @@ public class UnifiedTokenizationController {
                 token.getExpiresAt()
             );
             
-            response.setTokenizationMode(token.getTokenizationMode());
+            response.setTokenizationMode(token.getAlgorithmType());
             response.setUsageCount(token.getUsageCount());
             
             return ResponseEntity.ok(response);

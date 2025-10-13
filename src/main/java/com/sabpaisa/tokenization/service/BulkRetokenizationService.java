@@ -1,7 +1,7 @@
 package com.sabpaisa.tokenization.service;
 
 import com.sabpaisa.tokenization.domain.entity.EnhancedToken;
-import com.sabpaisa.tokenization.domain.entity.Merchant;
+import com.sabpaisa.tokenization.entity.Merchant;
 import com.sabpaisa.tokenization.presentation.dto.BulkRetokenizationRequest;
 import com.sabpaisa.tokenization.presentation.dto.BulkRetokenizationResponse;
 import com.sabpaisa.tokenization.presentation.dto.RetokenizationResult;
@@ -41,7 +41,7 @@ public class BulkRetokenizationService {
         response.setStartTime(LocalDateTime.now());
         
         try {
-            Merchant merchant = merchantRepository.findById(merchantId)
+            Merchant merchant = merchantRepository.findByMerchantId(merchantId)
                     .orElseThrow(() -> new RuntimeException("Merchant not found"));
             
             List<EnhancedToken> tokensToProcess = getTokensForRetokenization(request, merchant);
@@ -100,23 +100,23 @@ public class BulkRetokenizationService {
         
         switch (request.getSelectionCriteria()) {
             case EXPIRED:
-                return tokenRepository.findExpiredTokensByMerchant(merchant.getId(), now);
+                return tokenRepository.findExpiredTokensByMerchant(merchant.getMerchantId(), now);
                 
             case EXPIRING_SOON:
                 LocalDateTime expiryThreshold = now.plusDays(request.getDaysBeforeExpiry());
                 return tokenRepository.findExpiringTokensByMerchant(
-                    merchant.getId(), now, expiryThreshold);
+                    merchant.getMerchantId(), now, expiryThreshold);
                     
             case SPECIFIC_PLATFORM:
                 return tokenRepository.findTokensByMerchantAndPlatform(
-                    merchant.getId(), request.getPlatformId());
+                    merchant.getMerchantId(), request.getPlatformId());
                     
             case SPECIFIC_TOKENS:
                 return tokenRepository.findAllById(request.getTokenIds());
                 
             case DATE_RANGE:
                 return tokenRepository.findTokensByExpiryDateRange(
-                    merchant.getId(), request.getStartDate(), request.getEndDate());
+                    merchant.getMerchantId(), request.getStartDate(), request.getEndDate());
                     
             default:
                 throw new IllegalArgumentException("Invalid selection criteria");

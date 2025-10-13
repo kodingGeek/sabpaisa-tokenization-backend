@@ -168,4 +168,25 @@ public class TokenizationController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
         }
     }
+    
+    @GetMapping("/search")
+    @Operation(summary = "Search tokens", description = "Search tokens with filtering")
+    public ResponseEntity<TokenListResponse> searchTokens(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "DESC") String sortDirection,
+            @RequestParam(required = false) String merchantId) {
+        
+        try {
+            Sort.Direction direction = Sort.Direction.fromString(sortDirection.toUpperCase());
+            Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+            
+            TokenListResponse response = tokenizationService.getAllTokens(pageable, merchantId);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new TokenListResponse());
+        }
+    }
 }

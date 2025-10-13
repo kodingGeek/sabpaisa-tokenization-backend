@@ -1,5 +1,6 @@
 package com.sabpaisa.tokenization.domain.entity;
 
+import com.sabpaisa.tokenization.entity.Merchant;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -10,12 +11,12 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "tokens", indexes = {
-    @Index(name = "idx_token_value", columnList = "tokenValue"),
-    @Index(name = "idx_merchant_id", columnList = "merchant_id"),
-    @Index(name = "idx_platform_id", columnList = "platform_id"),
-    @Index(name = "idx_expiry_date", columnList = "expiryDate"),
-    @Index(name = "idx_card_hash_platform", columnList = "cardHash,platform_id")
+@Table(name = "enhanced_tokens", indexes = {
+    @Index(name = "idx_enhanced_token_value", columnList = "tokenValue"),
+    @Index(name = "idx_enhanced_merchant_id", columnList = "merchant_id"),
+    @Index(name = "idx_enhanced_platform_id", columnList = "platform_id"),
+    @Index(name = "idx_enhanced_expiry_date", columnList = "expiryDate"),
+    @Index(name = "idx_enhanced_card_hash_platform", columnList = "cardHash,platform_id")
 })
 @Data
 @NoArgsConstructor

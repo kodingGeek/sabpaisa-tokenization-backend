@@ -55,3 +55,15 @@ app:
     allowed-origins: "*"
     allowed-methods: "*"
     allowed-headers: "*"
+  encryption:
+    master-key: ${ENCRYPTION_MASTER_KEY:dGhpc2lzYXRlc3RrZXlmb3JkZXZlbG9wbWVudHB1cnBvc2VzMTIzNDU2Nzg=}
+  monetization:
+    enabled: true
+    free-tier-tokens: 1000
+  notification:
+    from-email: noreply@sabpaisa.com
+    enabled: true
+  sms:
+    provider: mock
+    api-key: test-key
+    sender-id: SBPAIS

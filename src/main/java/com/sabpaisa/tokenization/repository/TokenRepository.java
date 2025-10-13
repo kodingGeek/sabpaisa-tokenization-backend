@@ -39,4 +39,27 @@ public interface TokenRepository extends JpaRepository<Token, Long> {
     
     @Query("SELECT COUNT(DISTINCT t.cardHash) FROM Token t WHERE t.merchant.merchantId = :merchantId AND t.createdAt > :after")
     Integer countUniqueCardsByMerchantIdAndCreatedAtAfter(@Param("merchantId") String merchantId, @Param("after") LocalDateTime after);
+    
+    Optional<Token> findByCardHashAndMerchantAndAlgorithmType(String cardHash, Merchant merchant, String algorithmType);
+    
+    Optional<Token> findByTokenValueAndMerchant_MerchantId(String tokenValue, String merchantId);
+    
+    // Search tokens with filtering
+    @Query("SELECT t FROM Token t WHERE " +
+           "(:merchant IS NULL OR t.merchant = :merchant) AND " +
+           "(:status IS NULL OR t.status = :status) AND " +
+           "(:algorithmType IS NULL OR t.algorithmType = :algorithmType) AND " +
+           "(:cardBrand IS NULL OR t.cardBrand = :cardBrand) AND " +
+           "(:fromDate IS NULL OR t.createdAt >= :fromDate) AND " +
+           "(:toDate IS NULL OR t.createdAt <= :toDate)")
+    Page<Token> searchTokens(@Param("merchant") Merchant merchant,
+                            @Param("status") String status,
+                            @Param("algorithmType") String algorithmType,
+                            @Param("cardBrand") String cardBrand,
+                            @Param("fromDate") LocalDateTime fromDate,
+                            @Param("toDate") LocalDateTime toDate,
+                            Pageable pageable);
+                            
+    // Method to get all tokens
+    Page<Token> findAll(Pageable pageable);
 }

@@ -163,4 +163,90 @@ public class TokenNotificationService {
             java.time.temporal.ChronoUnit.DAYS.between(LocalDateTime.now(), token.getExpiryDate())
         );
     }
+    
+    public void sendRenewalNotification(EnhancedToken token) {
+        try {
+            if (token.getNotificationEnabled() && token.getIsActive()) {
+                if (token.getCustomerEmail() != null) {
+                    sendRenewalEmailNotification(token);
+                }
+                
+                if (token.getCustomerPhone() != null) {
+                    sendRenewalSmsNotification(token);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error sending renewal notification for token {}: {}", token.getTokenValue(), e.getMessage());
+        }
+    }
+    
+    private void sendRenewalEmailNotification(EnhancedToken token) throws Exception {
+        MimeMessage message = mailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+        
+        helper.setFrom(fromEmail);
+        helper.setTo(token.getCustomerEmail());
+        helper.setSubject("Token Renewal Successful");
+        
+        String htmlContent = buildRenewalEmailContent(token);
+        helper.setText(htmlContent, true);
+        
+        mailSender.send(message);
+        log.info("Renewal email notification sent to {} for token ending in {}", 
+                token.getCustomerEmail(), token.getCardLast4());
+    }
+    
+    private void sendRenewalSmsNotification(EnhancedToken token) {
+        String message = String.format(
+            "Your payment token ending in %s has been renewed. New expiry: %s. - SabPaisa",
+            token.getCardLast4(),
+            token.getExpiryDate().format(DateTimeFormatter.ofPattern("dd-MM-yyyy"))
+        );
+        
+        smsService.sendSms(token.getCustomerPhone(), message);
+        log.info("Renewal SMS notification sent to {} for token ending in {}", 
+                token.getCustomerPhone(), token.getCardLast4());
+    }
+    
+    private String buildRenewalEmailContent(EnhancedToken token) {
+        return String.format("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: Arial, sans-serif; }
+                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                    .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+                    .content { padding: 20px; background-color: #f5f5f5; }
+                    .footer { text-align: center; padding: 20px; color: #666; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h2>Token Renewal Successful</h2>
+                    </div>
+                    <div class="content">
+                        <p>Dear Customer,</p>
+                        <p>Your payment token has been successfully renewed:</p>
+                        <ul>
+                            <li>Card ending in: %s</li>
+                            <li>Platform: %s</li>
+                            <li>New Expiry Date: %s</li>
+                        </ul>
+                        <p>No action is required from your side.</p>
+                    </div>
+                    <div class="footer">
+                        <p>This is an automated notification from SabPaisa Tokenization Platform</p>
+                        <p>Please do not reply to this email</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """,
+            token.getCardLast4(),
+            token.getPlatform() != null ? token.getPlatform().getPlatformName() : "All Platforms",
+            token.getExpiryDate().format(DateTimeFormatter.ofPattern("dd MMMM yyyy"))
+        );
+    }
 }
