@@ -95,7 +95,14 @@ jobs:
       - name: Build application
         run: |
           echo "Building application..."
-          mvn clean package -DskipTests
+          echo "Current directory:"
+          pwd
+          echo "Files in current directory:"
+          ls -la
+          echo "Checking pom.xml:"
+          cat pom.xml | head -20
+          echo "Starting build:"
+          mvn clean package -DskipTests -e
           
           # Check if WAR was created
           if [ ! -f target/*.war ]; then
