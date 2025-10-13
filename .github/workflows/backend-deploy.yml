@@ -30,7 +30,7 @@ jobs:
         uses: actions/setup-java@v3
         with:
           java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'corretto'
+          distribution: 'temurin'
           cache: 'maven'
       
       - name: Configure AWS credentials
@@ -95,14 +95,14 @@ jobs:
       - name: Build application
         run: |
           echo "Building application..."
-          echo "Current directory:"
-          pwd
-          echo "Files in current directory:"
-          ls -la
-          echo "Checking pom.xml:"
-          cat pom.xml | head -20
-          echo "Starting build:"
-          mvn clean package -DskipTests -e
+          echo "Java version:"
+          java -version
+          echo "Maven version:"
+          mvn -version
+          echo "Starting build with compile first:"
+          mvn clean compile -e
+          echo "Now packaging:"
+          mvn package -DskipTests -e
           
           # Check if WAR was created
           if [ ! -f target/*.war ]; then
