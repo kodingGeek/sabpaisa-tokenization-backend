@@ -3,9 +3,9 @@ spring:
     name: tokenization-service
     
   datasource:
-    url: jdbc:postgresql://localhost:5432/sabpaisa_tokenization
+    url: jdbc:postgresql://sabpaisa-tokenization-dev.cbiou4ywozhr.ap-south-1.rds.amazonaws.com:5432/sabpaisa_tokenization
     username: postgres
-    password: password
+    password: ZiNivqDJx8hVC9FT2uIBFx2Xa
     driver-class-name: org.postgresql.Driver
     
   jpa:
@@ -28,7 +28,9 @@ spring:
       expiration: 86400000 # 24 hours in milliseconds
 
 server:
-  port: 8082
+  port: 8080
+  servlet:
+    context-path: /tokenization-backend
   error:
     include-message: always
     include-binding-errors: always
