@@ -5,7 +5,7 @@ import com.sabpaisa.tokenization.cloud.MultiCloudReplicationService;
 import com.sabpaisa.tokenization.cloud.MultiCloudReplicationService.CloudProvider;
 import com.sabpaisa.tokenization.dto.ApiResponse;
 import com.sabpaisa.tokenization.entity.Token;
-import com.sabpaisa.tokenization.entity.Merchant;
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import com.sabpaisa.tokenization.repository.TokenRepository;
 import com.sabpaisa.tokenization.repository.MerchantRepository;
 import org.slf4j.Logger;

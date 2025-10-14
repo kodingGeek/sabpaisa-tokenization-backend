@@ -1,7 +1,7 @@
 package com.sabpaisa.tokenization.repository;
 
 import com.sabpaisa.tokenization.entity.Token;
-import com.sabpaisa.tokenization.entity.Merchant;
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

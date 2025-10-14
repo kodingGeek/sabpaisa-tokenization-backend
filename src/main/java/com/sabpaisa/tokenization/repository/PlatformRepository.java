@@ -1,7 +1,7 @@
 package com.sabpaisa.tokenization.repository;
 
 import com.sabpaisa.tokenization.domain.entity.Platform;
-import com.sabpaisa.tokenization.entity.Merchant;
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

@@ -1,6 +1,6 @@
 package com.sabpaisa.tokenization.service;
 
-import com.sabpaisa.tokenization.entity.Merchant;
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import com.sabpaisa.tokenization.presentation.dto.BulkRetokenizationResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

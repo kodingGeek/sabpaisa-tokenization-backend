@@ -1,7 +1,7 @@
 package com.sabpaisa.tokenization.service;
 
 import com.sabpaisa.tokenization.dto.*;
-import com.sabpaisa.tokenization.entity.Merchant;
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import com.sabpaisa.tokenization.repository.MerchantRepository;
 import com.sabpaisa.tokenization.repository.TokenRepository;
 import org.springframework.beans.factory.annotation.Autowired;

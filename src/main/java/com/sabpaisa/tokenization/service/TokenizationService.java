@@ -1,7 +1,7 @@
 package com.sabpaisa.tokenization.service;
 
 import com.sabpaisa.tokenization.entity.Token;
-import com.sabpaisa.tokenization.entity.Merchant;
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import com.sabpaisa.tokenization.repository.TokenRepository;
 import com.sabpaisa.tokenization.repository.MerchantRepository;
 import com.sabpaisa.tokenization.dto.TokenListResponse;
@@ -111,7 +111,7 @@ public class TokenizationService {
             .orElseThrow(() -> new RuntimeException("Token not found"));
         
         // Verify token belongs to merchant
-        if (!token.getMerchant().getId().equals(merchant.getId())) {
+        if (!token.getMerchant().getMerchantId().equals(merchant.getMerchantId())) {
             throw new RuntimeException("Token not found for this merchant");
         }
         

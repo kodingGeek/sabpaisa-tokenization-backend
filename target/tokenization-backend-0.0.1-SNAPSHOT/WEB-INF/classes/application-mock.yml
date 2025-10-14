@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: tokenization-service
+    
+  # Use H2 in-memory database for mock mode
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: password
+    
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: true
+    show-sql: true
+    
+  # Disable Redis for mock mode
+  data:
+    redis:
+      repositories:
+        enabled: false
+        
+  security:
+    jwt:
+      secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      expiration: 86400000 # 24 hours in milliseconds
+
+server:
+  port: 8082
+  error:
+    include-message: always
+    include-binding-errors: always
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    
+logging:
+  level:
+    com.sabpaisa.tokenization: DEBUG
+    org.springframework.web: INFO
+    org.hibernate: INFO
+
+# Mock mode indicator
+app:
+  mode: mock
+  mock:
+    enabled: true

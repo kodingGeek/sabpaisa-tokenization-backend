@@ -1,7 +1,7 @@
 package com.sabpaisa.tokenization.service;
 
 import com.sabpaisa.tokenization.entity.Token;
-import com.sabpaisa.tokenization.entity.Merchant;
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import com.sabpaisa.tokenization.security.quantum.QuantumResistantEncryption;
 import com.sabpaisa.tokenization.security.quantum.QuantumResistantEncryption.*;
 import org.slf4j.Logger;

@@ -163,4 +163,82 @@ public class TokenNotificationService {
             java.time.temporal.ChronoUnit.DAYS.between(LocalDateTime.now(), token.getExpiryDate())
         );
     }
+    
+    public void sendRenewalNotification(EnhancedToken token) {
+        try {
+            if (token.getCustomerEmail() != null) {
+                sendRenewalEmailNotification(token);
+            }
+            
+            if (token.getCustomerPhone() != null) {
+                sendRenewalSmsNotification(token);
+            }
+            
+            log.info("Sent renewal notification for token: {}", token.getTokenValue());
+        } catch (Exception e) {
+            log.error("Error sending renewal notification for token {}: {}", token.getTokenValue(), e.getMessage());
+        }
+    }
+    
+    private void sendRenewalEmailNotification(EnhancedToken token) throws Exception {
+        MimeMessage message = mailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+        
+        helper.setFrom(fromEmail);
+        helper.setTo(token.getCustomerEmail());
+        helper.setSubject("Token Renewed Successfully");
+        
+        helper.setText(String.format("""
+            <html>
+            <head>
+                <style>
+                    .container { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; }
+                    .header { background-color: #007bff; color: white; padding: 20px; text-align: center; }
+                    .content { padding: 20px; }
+                    .footer { background-color: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; }
+                    .button { background-color: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h2>Token Renewed Successfully</h2>
+                    </div>
+                    <div class="content">
+                        <p>Dear Customer,</p>
+                        <p>Your payment token has been successfully renewed:</p>
+                        <ul>
+                            <li>Card ending in: %s</li>
+                            <li>Platform: %s</li>
+                            <li>New Expiry Date: %s</li>
+                        </ul>
+                        <p>Your new token is now active and ready for use.</p>
+                    </div>
+                    <div class="footer">
+                        <p>This is an automated notification from SabPaisa Tokenization Platform</p>
+                        <p>Please do not reply to this email</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """,
+            token.getCardLast4(),
+            token.getPlatform() != null ? token.getPlatform().getPlatformName() : "All Platforms",
+            token.getExpiryDate().format(DateTimeFormatter.ofPattern("dd MMMM yyyy"))
+        ), true);
+        
+        mailSender.send(message);
+        log.info("Renewal email notification sent to: {}", token.getCustomerEmail());
+    }
+    
+    private void sendRenewalSmsNotification(EnhancedToken token) {
+        String message = String.format(
+            "Your payment token has been renewed successfully! Card ending in %s. New expiry: %s. - SabPaisa",
+            token.getCardLast4(),
+            token.getExpiryDate().format(DateTimeFormatter.ofPattern("dd-MMM-yyyy"))
+        );
+        
+        smsService.sendSms(token.getCustomerPhone(), message);
+        log.info("Renewal SMS notification sent to: {}", token.getCustomerPhone());
+    }
 }

@@ -3,7 +3,7 @@ package com.sabpaisa.tokenization.biometric;
 import com.sabpaisa.tokenization.biometric.BiometricComponents.*;
 import com.sabpaisa.tokenization.biometric.BiometricDataStructures.*;
 import com.sabpaisa.tokenization.entity.Token;
-import com.sabpaisa.tokenization.entity.Merchant;
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import com.sabpaisa.tokenization.repository.BiometricEnrollmentRepository;
 import com.sabpaisa.tokenization.repository.BiometricTokenRepository;
 import org.slf4j.Logger;

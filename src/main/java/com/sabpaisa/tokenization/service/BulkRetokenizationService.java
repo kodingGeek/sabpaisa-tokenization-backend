@@ -1,7 +1,7 @@
 package com.sabpaisa.tokenization.service;
 
 import com.sabpaisa.tokenization.domain.entity.EnhancedToken;
-import com.sabpaisa.tokenization.entity.Merchant;
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import com.sabpaisa.tokenization.presentation.dto.BulkRetokenizationRequest;
 import com.sabpaisa.tokenization.presentation.dto.BulkRetokenizationResponse;
 import com.sabpaisa.tokenization.presentation.dto.RetokenizationResult;
@@ -147,10 +147,9 @@ public class BulkRetokenizationService {
                 result.setMessage("Token successfully renewed");
                 
                 // Send individual notification if enabled
-                // TODO: Implement sendRenewalNotification in TokenNotificationService
-                // if (request.isSendNotification() && token.getNotificationEnabled()) {
-                //     notificationService.sendRenewalNotification(newToken);
-                // }
+                if (request.isSendNotification() && token.getNotificationEnabled()) {
+                    notificationService.sendRenewalNotification(newToken);
+                }
                 
             } catch (Exception e) {
                 log.error("Failed to retokenize token {}: ", token.getId(), e);
@@ -212,6 +211,6 @@ public class BulkRetokenizationService {
     
     private void sendBulkProcessingSummary(Merchant merchant, BulkRetokenizationResponse response) {
         // Implementation for sending summary email/notification
-        log.info("Sending bulk processing summary to merchant: {}", merchant.getId());
+        log.info("Sending bulk processing summary to merchant: {}", merchant.getMerchantId());
     }
 }

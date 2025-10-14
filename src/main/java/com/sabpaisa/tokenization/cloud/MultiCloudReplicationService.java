@@ -2,7 +2,7 @@ package com.sabpaisa.tokenization.cloud;
 
 import com.sabpaisa.tokenization.cloud.CloudDataStructures.*;
 import com.sabpaisa.tokenization.entity.Token;
-import com.sabpaisa.tokenization.entity.Merchant;
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;

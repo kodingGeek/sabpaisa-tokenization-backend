@@ -5,7 +5,7 @@ import com.sabpaisa.tokenization.dto.TokenResponse;
 import com.sabpaisa.tokenization.dto.DetokenizeRequest;
 import com.sabpaisa.tokenization.dto.TokenListResponse;
 import com.sabpaisa.tokenization.entity.Token;
-import com.sabpaisa.tokenization.entity.Merchant;
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import com.sabpaisa.tokenization.service.TokenizationService;
 import com.sabpaisa.tokenization.repository.MerchantRepository;
 import com.sabpaisa.tokenization.repository.TokenRepository;

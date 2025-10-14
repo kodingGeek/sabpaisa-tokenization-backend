@@ -1,8 +1,6 @@
 package com.sabpaisa.tokenization.service;
 
 import com.sabpaisa.tokenization.domain.entity.*;
-import com.sabpaisa.tokenization.entity.Merchant;
-import com.sabpaisa.tokenization.entity.Token;
 import com.sabpaisa.tokenization.presentation.dto.*;
 import com.sabpaisa.tokenization.repository.*;
 import lombok.RequiredArgsConstructor;

@@ -1,5 +1,6 @@
 package com.sabpaisa.tokenization.entity;
 
+import com.sabpaisa.tokenization.domain.entity.Merchant;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.HashMap;

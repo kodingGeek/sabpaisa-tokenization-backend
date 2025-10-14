@@ -1,7 +1,6 @@
 package com.sabpaisa.tokenization.service;
 
 import com.sabpaisa.tokenization.domain.entity.*;
-import com.sabpaisa.tokenization.entity.Merchant;
 import com.sabpaisa.tokenization.presentation.dto.*;
 import com.sabpaisa.tokenization.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -45,13 +44,13 @@ public class TokenMonetizationService {
         log.info("Starting monthly billing generation");
         LocalDate billingMonth = LocalDate.now().minusMonths(1);
         
-        List<Merchant> activeMerchants = merchantRepository.findAll();
+        List<Merchant> activeMerchants = merchantRepository.findAllActive();
         
         for (Merchant merchant : activeMerchants) {
             try {
                 generateMerchantBilling(merchant, billingMonth);
             } catch (Exception e) {
-                log.error("Error generating billing for merchant {}: ", merchant.getId(), e);
+                log.error("Error generating billing for merchant {}: ", merchant.getMerchantId(), e);
             }
         }
         
@@ -96,7 +95,7 @@ public class TokenMonetizationService {
         sendBillingNotification(merchant, billing);
         
         log.info("Generated billing for merchant {} - Total: {}", 
-                merchant.getId(), calculation.getTotalAmount());
+                merchant.getMerchantId(), calculation.getTotalAmount());
     }
     
     private TokenUsageStats calculateTokenUsage(Merchant merchant, LocalDate billingMonth) {
@@ -179,7 +178,7 @@ public class TokenMonetizationService {
     
     private void sendBillingNotification(Merchant merchant, BillingRecord billing) {
         // Implementation for sending billing notification via email
-        log.info("Sending billing notification to merchant: {}", merchant.getId());
+        log.info("Sending billing notification to merchant: {}", merchant.getMerchantId());
     }
     
     public BillingDashboardResponse getMerchantBillingDashboard(String merchantId) {
