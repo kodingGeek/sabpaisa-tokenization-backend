@@ -93,7 +93,7 @@ jobs:
       run: |
         # Get EC2 instance ID
         INSTANCE_ID=$(aws ec2 describe-instances \
-          --filters "Name=tag:Name,Values=sabpaisa-tokenization-backend-${{ github.event.inputs.environment }}" \
+          --filters "Name=tag:Name,Values=sabpaisa-backend-${{ github.event.inputs.environment }}" \
                    "Name=instance-state-name,Values=running" \
           --query "Reservations[0].Instances[0].InstanceId" \
           --output text)
@@ -107,7 +107,7 @@ jobs:
         
         # Upload WAR file to S3 for EC2 to download
         aws s3 cp ./artifacts/${{ needs.build.outputs.war-name }} \
-          s3://sabpaisa-tokenization-artifacts-${{ github.event.inputs.environment }}/${{ env.APPLICATION_NAME }}/
+          s3://sabpaisa-artifacts/${{ env.APPLICATION_NAME }}/${{ github.event.inputs.environment }}/
         
         # Create deployment script
         cat > deploy-script.sh << 'EOF'
@@ -119,7 +119,7 @@ jobs:
         WAR_NAME="${{ needs.build.outputs.war-name }}"
         TOMCAT_HOME="/opt/tomcat"
         WEBAPPS_DIR="$TOMCAT_HOME/webapps"
-        S3_BUCKET="sabpaisa-tokenization-artifacts-${{ github.event.inputs.environment }}"
+        S3_BUCKET="sabpaisa-artifacts"
         
         # Database configuration
         DB_HOST="${{ steps.get-db-config.outputs.DB_HOST }}"
@@ -131,7 +131,7 @@ jobs:
         
         # Download WAR from S3
         echo "Downloading WAR file from S3..."
-        aws s3 cp "s3://$S3_BUCKET/$APP_NAME/$WAR_NAME" "/tmp/$WAR_NAME"
+        aws s3 cp "s3://$S3_BUCKET/$APP_NAME/${{ github.event.inputs.environment }}/$WAR_NAME" "/tmp/$WAR_NAME"
         
         # Stop Tomcat
         echo "Stopping Tomcat..."
