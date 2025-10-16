@@ -82,15 +82,18 @@ jobs:
           
           # Create security group for RDS
           SG_ID=$(aws ec2 create-security-group \
-            --group-name ${DB_IDENTIFIER}-sg \
-            --description "Security group for $DB_IDENTIFIER" \
-            --vpc-id $VPC_ID \
+            --group-name "${DB_IDENTIFIER}-sg" \
+            --description "Security group for ${DB_IDENTIFIER}" \
+            --vpc-id "$VPC_ID" \
             --query 'GroupId' \
-            --output text 2>/dev/null || \
-            aws ec2 describe-security-groups \
+            --output text 2>/dev/null || echo "")
+          
+          if [ -z "$SG_ID" ]; then
+            SG_ID=$(aws ec2 describe-security-groups \
               --filters "Name=group-name,Values=${DB_IDENTIFIER}-sg" \
               --query 'SecurityGroups[0].GroupId' \
               --output text)
+          fi
           
           # Allow PostgreSQL access
           aws ec2 authorize-security-group-ingress \
@@ -119,11 +122,11 @@ jobs:
           
           # Store password in Secrets Manager
           aws secretsmanager create-secret \
-            --name ${DB_IDENTIFIER}-password \
+            --name "${DB_IDENTIFIER}-password" \
             --secret-string "$DB_PASSWORD" 2>/dev/null || \
-          aws secretsmanager update-secret \
-            --secret-id ${DB_IDENTIFIER}-password \
-            --secret-string "$DB_PASSWORD"
+            aws secretsmanager update-secret \
+              --secret-id "${DB_IDENTIFIER}-password" \
+              --secret-string "$DB_PASSWORD"
           
           echo "password=$DB_PASSWORD" >> $GITHUB_OUTPUT
         else
@@ -300,14 +303,20 @@ jobs:
           --listener-arn $LISTENER_ARN \
           --priority 10 \
           --conditions Field=path-pattern,Values="/api/*" \
-          --actions Type=forward,TargetGroupArn=${{ steps.alb.outputs.backend_tg_arn }} 2>/dev/null || \
-        aws elbv2 modify-rule \
-          --rule-arn $(aws elbv2 describe-rules \
-            --listener-arn $LISTENER_ARN \
-            --query 'Rules[?Conditions[?Field==`path-pattern`]].RuleArn | [0]' \
-            --output text) \
-          --conditions Field=path-pattern,Values="/api/*" \
-          --actions Type=forward,TargetGroupArn=${{ steps.alb.outputs.backend_tg_arn }}
+          --actions Type=forward,TargetGroupArn=${{ steps.alb.outputs.backend_tg_arn }} 2>/dev/null || true
+        
+        # If rule exists, modify it
+        RULE_ARN=$(aws elbv2 describe-rules \
+          --listener-arn $LISTENER_ARN \
+          --query "Rules[?Priority=='10'].RuleArn | [0]" \
+          --output text)
+        
+        if [ "$RULE_ARN" != "None" ] && [ -n "$RULE_ARN" ]; then
+          aws elbv2 modify-rule \
+            --rule-arn $RULE_ARN \
+            --conditions Field=path-pattern,Values="/api/*" \
+            --actions Type=forward,TargetGroupArn=${{ steps.alb.outputs.backend_tg_arn }}
+        fi
         
         # Frontend: /* -> frontend target group (default)
         aws elbv2 modify-listener \
