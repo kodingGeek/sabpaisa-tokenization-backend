@@ -69,7 +69,7 @@ jobs:
           echo "Creating new RDS instance..."
           
           # Generate secure password
-          DB_PASSWORD=$(openssl rand -base64 32 | tr -d "/@\\\\" | cut -c1-25)
+          DB_PASSWORD=$(openssl rand -base64 32 | tr -d '/=+' | cut -c1-25)
           
           # Create DB subnet group
           VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text)
@@ -156,7 +156,7 @@ jobs:
         VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text)
         SUBNET_IDS=$(aws ec2 describe-subnets \
           --filters "Name=vpc-id,Values=$VPC_ID" \
-          --query 'Subnets[?AvailabilityZone != `null`].SubnetId' \
+          --query 'Subnets[*].SubnetId' \
           --output text | tr '\t' ' ')
         
         # Check if ALB exists
