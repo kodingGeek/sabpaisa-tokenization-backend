@@ -26,7 +26,7 @@ RUN echo '#!/bin/bash' > /wait-for-postgres.sh && \
 EXPOSE 8082
 
 # Set environment variables for Spring Boot
-ENV SPRING_PROFILES_ACTIVE=docker
+ENV SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-docker}
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
 
 # Health check
