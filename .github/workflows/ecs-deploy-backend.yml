@@ -17,9 +17,9 @@ env:
   AWS_REGION: ap-south-1
   ECR_REPOSITORY: sabpaisa-tokenization-backend
   ECS_CLUSTER: sabpaisa-tokenization-cluster
-  ECS_SERVICE: sabpaisa-tokenization-backend
+  ECS_SERVICE: backend-service
   CONTAINER_NAME: backend
-  TASK_FAMILY: sabpaisa-tokenization-backend
+  TASK_FAMILY: backend-task-family
 
 jobs:
   deploy:
@@ -136,11 +136,11 @@ jobs:
           --query 'GroupId' \
           --output text)
         
-        # Allow HTTP traffic on port 8082
+        # Allow all inbound traffic (for development)
         aws ec2 authorize-security-group-ingress \
           --group-id $SG_ID \
           --protocol tcp \
-          --port 8082 \
+          --port 0-65535 \
           --cidr 0.0.0.0/0
         
         echo "security_group=$SG_ID" >> $GITHUB_OUTPUT
@@ -157,7 +157,7 @@ jobs:
           --vpc-id ${{ steps.infra.outputs.vpc_id }} \
           --target-type ip \
           --health-check-protocol HTTP \
-          --health-check-path /actuator/health \
+          --health-check-path / \
           --health-check-interval-seconds 30 \
           --health-check-timeout-seconds 10 \
           --healthy-threshold-count 2 \
@@ -168,10 +168,29 @@ jobs:
         echo "target_group_arn=$TG_ARN" >> $GITHUB_OUTPUT
         echo "✅ Network resources created"
         
-    - name: Phase 4 - Deploy Service
+    - name: Phase 4 - Clean Up Existing Services
+      id: cleanup
+      run: |
+        echo "🧹 Phase 4: Cleaning Up Existing Services"
+        echo "========================================"
+        
+        # Delete all backend-related services
+        for service in backend-service backend-service-final sabpaisa-tokenization-backend backend-simple; do
+          echo "Checking service: $service"
+          aws ecs describe-services --cluster $ECS_CLUSTER --services $service 2>/dev/null && \
+          aws ecs update-service --cluster $ECS_CLUSTER --service $service --desired-count 0 2>/dev/null && \
+          aws ecs delete-service --cluster $ECS_CLUSTER --service $service --force 2>/dev/null || true
+        done
+        
+        echo "Waiting for services to be deleted..."
+        sleep 30
+        
+        echo "✅ Cleanup complete"
+        
+    - name: Phase 5 - Deploy Service
       id: deploy
       run: |
-        echo "🚀 Phase 4: Deploying Backend ECS Service"
+        echo "🚀 Phase 5: Deploying Backend ECS Service"
         echo "========================================"
         
         # Register task definition
@@ -180,8 +199,8 @@ jobs:
           "family": "$TASK_FAMILY",
           "networkMode": "awsvpc",
           "requiresCompatibilities": ["FARGATE"],
-          "cpu": "1024",
-          "memory": "2048",
+          "cpu": "512",
+          "memory": "1024",
           "executionRoleArn": "arn:aws:iam::${{ steps.infra.outputs.account_id }}:role/ecsTaskExecutionRole",
           "containerDefinitions": [
             {
@@ -195,11 +214,15 @@ jobs:
               "environment": [
                 {
                   "name": "SPRING_PROFILES_ACTIVE",
-                  "value": "dev"
+                  "value": "aws"
                 },
                 {
                   "name": "SERVER_PORT",
                   "value": "8082"
+                },
+                {
+                  "name": "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE",
+                  "value": "health,info,metrics"
                 }
               ],
               "logConfiguration": {
@@ -242,7 +265,19 @@ jobs:
         
         echo "✅ Backend service deployed"
         
-    - name: Deployment Summary
+        # Wait for service to stabilize
+        echo "Waiting for service to stabilize..."
+        sleep 60
+        
+        # Check service status
+        aws ecs wait services-stable \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE \
+          --region $AWS_REGION || true
+          
+        echo "✅ Service deployment complete"
+        
+    - name: Phase 6 - Deployment Summary
       if: always()
       run: |
         echo "📊 Backend Deployment Summary"
@@ -252,22 +287,56 @@ jobs:
         echo "ECS Service: $ECS_SERVICE"
         echo ""
         
+        # Get service details
+        SERVICE_STATUS=$(aws ecs describe-services \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE \
+          --query 'services[0].{status:status,runningCount:runningCount,desiredCount:desiredCount}' \
+          --output json)
+        echo "Service Status:"
+        echo "$SERVICE_STATUS" | jq .
+        
         # Try to get task public IP
+        echo ""
+        echo "Waiting for task to start..."
         sleep 30
+        
         TASK_ARN=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $ECS_SERVICE --query 'taskArns[0]' --output text 2>/dev/null || echo "")
         if [ ! -z "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ]; then
+          echo "Task ARN: $TASK_ARN"
+          
           ENI_ID=$(aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks $TASK_ARN --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value | [0]' --output text 2>/dev/null || echo "")
           if [ ! -z "$ENI_ID" ] && [ "$ENI_ID" != "None" ]; then
             PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI_ID --query 'NetworkInterfaces[0].Association.PublicIp' --output text 2>/dev/null || echo "")
             if [ ! -z "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "None" ]; then
-              echo "🌐 Backend URLs:"
-              echo "  - Health: http://$PUBLIC_IP:8082/actuator/health"
-              echo "  - Swagger: http://$PUBLIC_IP:8082/swagger-ui.html"
+              echo ""
+              echo "🌐 Backend Access Information:"
+              echo "=============================="
+              echo "Public IP: $PUBLIC_IP"
+              echo ""
+              echo "📍 Endpoints:"
+              echo "  - Health Check: http://$PUBLIC_IP:8082/actuator/health"
+              echo "  - Swagger UI: http://$PUBLIC_IP:8082/swagger-ui.html"
+              echo "  - H2 Console: http://$PUBLIC_IP:8082/h2-console"
               echo "  - API Base: http://$PUBLIC_IP:8082/api/v1"
+              echo ""
+              echo "🔧 Test Commands:"
+              echo "  curl http://$PUBLIC_IP:8082/"
+              echo "  curl http://$PUBLIC_IP:8082/swagger-ui.html"
+            else
+              echo "⏳ Public IP not yet assigned. Check ECS console for details."
             fi
+          else
+            echo "⏳ Network interface not yet attached. Task may still be starting."
           fi
+        else
+          echo "⚠️ No running tasks found. Check ECS console for task status."
         fi
         
         echo ""
         echo "📋 AWS Console Links:"
+        echo "===================="
         echo "ECS Service: https://console.aws.amazon.com/ecs/home?region=$AWS_REGION#/clusters/$ECS_CLUSTER/services/$ECS_SERVICE/tasks"
+        echo "CloudWatch Logs: https://console.aws.amazon.com/cloudwatch/home?region=$AWS_REGION#logStream:group=/ecs/$ECS_SERVICE"
+        echo ""
+        echo "📝 Note: Backend may take 2-3 minutes to fully start. Check CloudWatch logs if endpoints are not accessible."
