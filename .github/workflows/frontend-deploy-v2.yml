@@ -1,0 +1,302 @@
+name: Deploy Frontend V2
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - stage
+        - prod
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: sabpaisa-tokenization-frontend
+  ECS_CLUSTER: sabpaisa-tokenization-cluster
+  CONTAINER_NAME: frontend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Set environment variables
+      run: |
+        echo "ENV_NAME=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+        echo "ECS_SERVICE=frontend-service-${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+        echo "TASK_FAMILY=frontend-task-${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+        
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      
+    - name: Phase 1 - Fetch Infrastructure Details
+      id: infra
+      run: |
+        echo "🔍 Phase 1: Fetching Infrastructure Details"
+        echo "=========================================="
+        
+        # Get backend URL
+        BACKEND_URL=$(aws ssm get-parameter \
+          --name /${ENV_NAME}/backend/url \
+          --query 'Parameter.Value' \
+          --output text)
+        
+        if [[ -z "$BACKEND_URL" ]]; then
+          echo "❌ Backend URL not found. Please run infrastructure setup first."
+          exit 1
+        fi
+        
+        # Get target group ARN
+        TARGET_GROUP_ARN=$(aws ssm get-parameter \
+          --name /${ENV_NAME}/frontend/target-group-arn \
+          --query 'Parameter.Value' \
+          --output text)
+        
+        # Get other details
+        TIMESTAMP=$(date +%Y%m%d%H%M%S)
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        
+        # Ensure ECR repository exists
+        aws ecr describe-repositories --repository-names $ECR_REPOSITORY 2>/dev/null || \
+        aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true
+        
+        REPOSITORY_URI=$(aws ecr describe-repositories --repository-names $ECR_REPOSITORY --query 'repositories[0].repositoryUri' --output text)
+        
+        echo "backend_url=$BACKEND_URL" >> $GITHUB_OUTPUT
+        echo "target_group_arn=$TARGET_GROUP_ARN" >> $GITHUB_OUTPUT
+        echo "repository_uri=$REPOSITORY_URI" >> $GITHUB_OUTPUT
+        echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+        echo "account_id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
+        
+        echo "✅ Infrastructure details retrieved"
+        echo "Backend URL: http://$BACKEND_URL"
+        echo "Target Group: $TARGET_GROUP_ARN"
+        
+    - name: Phase 2 - Build and Push Docker Image
+      id: docker
+      run: |
+        echo "🐳 Phase 2: Building and Pushing Docker Image"
+        echo "==========================================="
+        
+        IMAGE_TAG="${{ steps.infra.outputs.timestamp }}"
+        IMAGE_URI="${{ steps.infra.outputs.repository_uri }}:$IMAGE_TAG"
+        
+        # Change to frontend directory
+        cd ../frontend || cd ../../sabpaisa-tokenization/frontend || { echo "Frontend directory not found"; exit 1; }
+        
+        # Create .env file for build
+        cat > .env <<EOF
+        REACT_APP_API_BASE_URL=http://${{ steps.infra.outputs.backend_url }}
+        REACT_APP_ENV=$ENV_NAME
+        REACT_APP_API_VERSION=v1
+        EOF
+        
+        echo "Building frontend image: $IMAGE_URI"
+        
+        # Build Docker image
+        docker build \
+          --build-arg REACT_APP_API_BASE_URL=http://${{ steps.infra.outputs.backend_url }} \
+          --build-arg REACT_APP_ENV=$ENV_NAME \
+          -t $IMAGE_URI .
+        
+        echo "Pushing image to ECR..."
+        docker push $IMAGE_URI
+        docker tag $IMAGE_URI ${{ steps.infra.outputs.repository_uri }}:latest
+        docker push ${{ steps.infra.outputs.repository_uri }}:latest
+        
+        echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+        echo "✅ Docker image built and pushed successfully"
+        
+    - name: Phase 3 - Create ECS Resources
+      id: ecs
+      run: |
+        echo "📦 Phase 3: Creating ECS Resources"
+        echo "================================="
+        
+        # Create CloudWatch log group
+        aws logs create-log-group --log-group-name /ecs/$ECS_SERVICE --region $AWS_REGION 2>/dev/null || echo "Log group exists"
+        
+        # Get VPC details
+        VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text)
+        SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --query 'Subnets[*].SubnetId' --output text)
+        SUBNET_1=$(echo $SUBNETS | cut -d' ' -f1)
+        SUBNET_2=$(echo $SUBNETS | cut -d' ' -f2)
+        
+        # Create security group for frontend
+        SG_NAME="frontend-sg-${ENV_NAME}-${{ steps.infra.outputs.timestamp }}"
+        SG_ID=$(aws ec2 create-security-group \
+          --group-name $SG_NAME \
+          --description "Frontend security group for $ENV_NAME" \
+          --vpc-id $VPC_ID \
+          --query 'GroupId' \
+          --output text)
+        
+        # Allow traffic from ALB
+        aws ec2 authorize-security-group-ingress \
+          --group-id $SG_ID \
+          --protocol tcp \
+          --port 3000 \
+          --cidr 0.0.0.0/0
+        
+        echo "security_group=$SG_ID" >> $GITHUB_OUTPUT
+        echo "subnet_1=$SUBNET_1" >> $GITHUB_OUTPUT
+        echo "subnet_2=$SUBNET_2" >> $GITHUB_OUTPUT
+        echo "✅ ECS resources created"
+        
+    - name: Phase 4 - Deploy ECS Service
+      run: |
+        echo "🚀 Phase 4: Deploying Frontend ECS Service"
+        echo "========================================"
+        
+        # Create task definition
+        cat > /tmp/task-definition.json <<EOF
+        {
+          "family": "$TASK_FAMILY",
+          "networkMode": "awsvpc",
+          "requiresCompatibilities": ["FARGATE"],
+          "cpu": "512",
+          "memory": "1024",
+          "executionRoleArn": "arn:aws:iam::${{ steps.infra.outputs.account_id }}:role/ecsTaskExecutionRole",
+          "containerDefinitions": [
+            {
+              "name": "$CONTAINER_NAME",
+              "image": "${{ steps.docker.outputs.image_uri }}",
+              "portMappings": [{
+                "containerPort": 3000,
+                "protocol": "tcp"
+              }],
+              "essential": true,
+              "environment": [
+                {
+                  "name": "NODE_ENV",
+                  "value": "production"
+                },
+                {
+                  "name": "PORT",
+                  "value": "3000"
+                },
+                {
+                  "name": "REACT_APP_API_BASE_URL",
+                  "value": "http://${{ steps.infra.outputs.backend_url }}"
+                },
+                {
+                  "name": "REACT_APP_ENV",
+                  "value": "$ENV_NAME"
+                }
+              ],
+              "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                  "awslogs-group": "/ecs/$ECS_SERVICE",
+                  "awslogs-region": "$AWS_REGION",
+                  "awslogs-stream-prefix": "ecs"
+                }
+              },
+              "healthCheck": {
+                "command": ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"],
+                "interval": 30,
+                "timeout": 10,
+                "retries": 3,
+                "startPeriod": 60
+              }
+            }
+          ]
+        }
+        EOF
+        
+        # Register task definition
+        aws ecs register-task-definition --cli-input-json file:///tmp/task-definition.json
+        
+        # Check if service exists
+        SERVICE_EXISTS=$(aws ecs describe-services \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE \
+          --query 'services[0].serviceName' \
+          --output text 2>/dev/null || echo "NOT_FOUND")
+        
+        NETWORK_CONFIG="{
+          \"awsvpcConfiguration\": {
+            \"subnets\": [\"${{ steps.ecs.outputs.subnet_1 }}\", \"${{ steps.ecs.outputs.subnet_2 }}\"],
+            \"securityGroups\": [\"${{ steps.ecs.outputs.security_group }}\"],
+            \"assignPublicIp\": \"ENABLED\"
+          }
+        }"
+        
+        if [[ "$SERVICE_EXISTS" == "NOT_FOUND" ]]; then
+          # Create new service with target group
+          aws ecs create-service \
+            --cluster $ECS_CLUSTER \
+            --service-name $ECS_SERVICE \
+            --task-definition $TASK_FAMILY \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --network-configuration "$NETWORK_CONFIG" \
+            --load-balancers "targetGroupArn=${{ steps.infra.outputs.target_group_arn }},containerName=$CONTAINER_NAME,containerPort=3000"
+        else
+          # Update existing service
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --task-definition $TASK_FAMILY \
+            --force-new-deployment \
+            --network-configuration "$NETWORK_CONFIG"
+        fi
+        
+        echo "✅ Frontend service deployed"
+        
+        # Wait for service to stabilize
+        echo "Waiting for service to stabilize..."
+        aws ecs wait services-stable \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE \
+          --region $AWS_REGION || true
+          
+    - name: Phase 5 - Deployment Summary
+      if: always()
+      run: |
+        echo "📊 Frontend Deployment Summary"
+        echo "============================"
+        echo "Environment: ${{ github.event.inputs.environment }}"
+        echo "Docker Image: ${{ steps.docker.outputs.image_uri || 'Not built' }}"
+        echo "ECS Service: $ECS_SERVICE"
+        echo "Backend URL: http://${{ steps.infra.outputs.backend_url }}"
+        echo ""
+        
+        # Get service details
+        SERVICE_STATUS=$(aws ecs describe-services \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE \
+          --query 'services[0].{status:status,runningCount:runningCount,desiredCount:desiredCount}' \
+          --output json 2>/dev/null || echo "{}")
+        
+        echo "Service Status:"
+        echo "$SERVICE_STATUS" | jq .
+        
+        echo ""
+        echo "🌐 Access URLs:"
+        echo "=============="
+        echo "Frontend URL: http://tokenization-$ENV_NAME.sabpaisa.in"
+        echo "Backend API: http://tokenization-$ENV_NAME.api.sabpaisa.in"
+        echo ""
+        echo "📋 AWS Console Links:"
+        echo "===================="
+        echo "ECS Service: https://console.aws.amazon.com/ecs/home?region=$AWS_REGION#/clusters/$ECS_CLUSTER/services/$ECS_SERVICE/tasks"
+        echo "CloudWatch Logs: https://console.aws.amazon.com/cloudwatch/home?region=$AWS_REGION#logStream:group=/ecs/$ECS_SERVICE"
+        echo ""
+        echo "📝 Note: DNS propagation may take a few minutes. The frontend will be accessible at the fixed URL once DNS updates."
