@@ -58,6 +58,50 @@ jobs:
         aws ecr describe-repositories --repository-names $ECR_REPOSITORY 2>/dev/null || \
         aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true
         
+        # Ensure ECS Task Execution Role exists with proper permissions
+        echo "Checking ECS Task Execution Role..."
+        ROLE_EXISTS=$(aws iam get-role --role-name ecsTaskExecutionRole 2>/dev/null || echo "NOT_FOUND")
+        if [[ "$ROLE_EXISTS" == "NOT_FOUND" ]]; then
+          echo "Creating ECS Task Execution Role..."
+          aws iam create-role --role-name ecsTaskExecutionRole --assume-role-policy-document '{
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "ecs-tasks.amazonaws.com"
+                },
+                "Action": "sts:AssumeRole"
+              }
+            ]
+          }'
+          
+          # Attach managed policy
+          aws iam attach-role-policy \
+            --role-name ecsTaskExecutionRole \
+            --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+        fi
+        
+        # Add CloudWatch Logs permissions to the role
+        echo "Ensuring CloudWatch Logs permissions..."
+        aws iam put-role-policy \
+          --role-name ecsTaskExecutionRole \
+          --policy-name CloudWatchLogsPolicy \
+          --policy-document '{
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "logs:CreateLogGroup",
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents"
+                ],
+                "Resource": "arn:aws:logs:*:*:*"
+              }
+            ]
+          }' || echo "Policy might already exist"
+        
         REPOSITORY_URI=$(aws ecr describe-repositories --repository-names $ECR_REPOSITORY --query 'repositories[0].repositoryUri' --output text)
         echo "repository_uri=$REPOSITORY_URI" >> $GITHUB_OUTPUT
         
@@ -126,6 +170,10 @@ jobs:
       run: |
         echo "🔒 Phase 3: Creating Network Resources"
         echo "===================================="
+        
+        # Create CloudWatch Log Group
+        echo "Creating CloudWatch log group..."
+        aws logs create-log-group --log-group-name /ecs/$ECS_SERVICE --region $AWS_REGION 2>/dev/null || echo "Log group already exists"
         
         # Create Security Group for Backend
         SG_NAME="backend-sg-${{ steps.infra.outputs.timestamp }}"
@@ -228,7 +276,6 @@ jobs:
               "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
-                  "awslogs-create-group": "true",
                   "awslogs-group": "/ecs/$ECS_SERVICE",
                   "awslogs-region": "$AWS_REGION",
                   "awslogs-stream-prefix": "ecs"
