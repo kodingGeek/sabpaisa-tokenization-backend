@@ -74,6 +74,12 @@ jobs:
           --query 'Parameter.Value' \
           --output text)
         
+        # Get ALB DNS
+        ALB_DNS=$(aws ssm get-parameter \
+          --name /${ENV_NAME}/alb/dns \
+          --query 'Parameter.Value' \
+          --output text)
+        
         # Get other details
         TIMESTAMP=$(date +%Y%m%d%H%M%S)
         ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -87,6 +93,7 @@ jobs:
         echo "db_endpoint=$DB_ENDPOINT" >> $GITHUB_OUTPUT
         echo "db_password=$DB_PASSWORD" >> $GITHUB_OUTPUT
         echo "target_group_arn=$TARGET_GROUP_ARN" >> $GITHUB_OUTPUT
+        echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
         echo "repository_uri=$REPOSITORY_URI" >> $GITHUB_OUTPUT
         echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
         echo "account_id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
@@ -242,7 +249,11 @@ jobs:
                 },
                 {
                   "name": "API_BASE_URL",
-                  "value": "http://tokenization-$ENV_NAME.api.sabpaisa.in"
+                  "value": "http://${{ steps.infra.outputs.alb_dns }}/api"
+                },
+                {
+                  "name": "ALB_DNS",
+                  "value": "${{ steps.infra.outputs.alb_dns }}"
                 }
               ],
               "logConfiguration": {
@@ -336,13 +347,13 @@ jobs:
         echo ""
         echo "🌐 Access URLs:"
         echo "=============="
-        echo "Backend URL: http://tokenization-$ENV_NAME.api.sabpaisa.in"
-        echo "Swagger UI: http://tokenization-$ENV_NAME.api.sabpaisa.in/swagger-ui.html"
-        echo "Health Check: http://tokenization-$ENV_NAME.api.sabpaisa.in/actuator/health"
+        echo "Backend URL: http://${{ steps.infra.outputs.alb_dns }}/api"
+        echo "Swagger UI: http://${{ steps.infra.outputs.alb_dns }}/api/swagger-ui.html"
+        echo "Health Check: http://${{ steps.infra.outputs.alb_dns }}/api/actuator/health"
         echo ""
         echo "📋 AWS Console Links:"
         echo "===================="
         echo "ECS Service: https://console.aws.amazon.com/ecs/home?region=$AWS_REGION#/clusters/$ECS_CLUSTER/services/$ECS_SERVICE/tasks"
         echo "CloudWatch Logs: https://console.aws.amazon.com/cloudwatch/home?region=$AWS_REGION#logStream:group=/ecs/$ECS_SERVICE"
         echo ""
-        echo "📝 Note: DNS propagation may take a few minutes. The backend will be accessible at the fixed URL once DNS updates."
+        echo "📝 Note: The backend is accessible via the ALB at the fixed URL shown above."

@@ -1,19 +1,20 @@
 # 🚀 Deployment Guide - SabPaisa Tokenization Platform
 
-This guide explains how to deploy the SabPaisa tokenization platform with fixed DNS names and proper database connectivity.
+This guide explains how to deploy the SabPaisa tokenization platform with fixed AWS ALB DNS names and proper database connectivity.
 
 ## 📋 Overview
 
 The deployment is now organized with:
-- **Fixed DNS names** for each environment
+- **Fixed ALB DNS names** that don't change between deployments
 - **Automatic database connectivity** 
 - **Environment-based deployment** (dev, stage, prod)
+- **Path-based routing** through Application Load Balancer
 
-### DNS Structure:
-- **Backend**: `tokenization-{env}.api.sabpaisa.in`
-- **Frontend**: `tokenization-{env}.sabpaisa.in`
+### URL Structure:
+- **Frontend**: `http://{alb-dns-name}/`
+- **Backend API**: `http://{alb-dns-name}/api`
 
-Where `{env}` is: `dev`, `stage`, or `prod`
+Where ALB DNS name follows the pattern: `sabpaisa-token-api-{env}-alb.{region}.elb.amazonaws.com`
 
 ## 🔧 Prerequisites
 
@@ -21,10 +22,9 @@ Where `{env}` is: `dev`, `stage`, or `prod`
    ```
    AWS_ACCESS_KEY_ID
    AWS_SECRET_ACCESS_KEY
-   HOSTED_ZONE_ID  # Route53 hosted zone ID for sabpaisa.in domain
    ```
 
-2. **Route53 Hosted Zone**: You need a Route53 hosted zone for `sabpaisa.in` domain
+2. **No Domain Required**: The platform uses AWS ALB DNS names, so you don't need to own any domain
 
 ## 📦 Deployment Process
 
@@ -41,8 +41,8 @@ Run the **Infrastructure Setup** workflow first:
 
 This will:
 - ✅ Create RDS PostgreSQL database
-- ✅ Create Application Load Balancer (ALB)
-- ✅ Configure Route53 DNS records
+- ✅ Create Application Load Balancer (ALB) with fixed DNS name
+- ✅ Configure path-based routing (/api/* → backend, /* → frontend)
 - ✅ Set up target groups for backend and frontend
 - ✅ Store all configuration in AWS Parameter Store
 
@@ -63,7 +63,7 @@ This will:
 - ✅ Test database connectivity
 - ✅ Build and deploy backend with proper database configuration
 - ✅ Register with ALB target group
-- ✅ Backend will be accessible at: `http://tokenization-dev.api.sabpaisa.in`
+- ✅ Backend will be accessible at: `http://{alb-dns}/api`
 
 ### Step 3: Deploy Frontend
 
@@ -76,28 +76,24 @@ Finally, deploy the frontend:
 4. Run workflow
 
 This will:
-- ✅ Fetch backend URL automatically
+- ✅ Fetch ALB DNS automatically
 - ✅ Build frontend with correct API endpoint
 - ✅ Deploy to ECS
 - ✅ Register with ALB target group
-- ✅ Frontend will be accessible at: `http://tokenization-dev.sabpaisa.in`
+- ✅ Frontend will be accessible at: `http://{alb-dns}/`
 
 ## 🌐 Access URLs
 
-### Development Environment:
-- Frontend: `http://tokenization-dev.sabpaisa.in`
-- Backend API: `http://tokenization-dev.api.sabpaisa.in`
-- Swagger UI: `http://tokenization-dev.api.sabpaisa.in/swagger-ui.html`
+After infrastructure setup completes, you'll get a fixed ALB DNS name like:
+- Development: `sabpaisa-token-api-dev-alb.ap-south-1.elb.amazonaws.com`
+- Staging: `sabpaisa-token-api-stage-alb.ap-south-1.elb.amazonaws.com`
+- Production: `sabpaisa-token-api-prod-alb.ap-south-1.elb.amazonaws.com`
 
-### Staging Environment:
-- Frontend: `http://tokenization-stage.sabpaisa.in`
-- Backend API: `http://tokenization-stage.api.sabpaisa.in`
-- Swagger UI: `http://tokenization-stage.api.sabpaisa.in/swagger-ui.html`
-
-### Production Environment:
-- Frontend: `http://tokenization.sabpaisa.in`
-- Backend API: `http://tokenization.api.sabpaisa.in`
-- Swagger UI: `http://tokenization.api.sabpaisa.in/swagger-ui.html`
+### Access Points:
+- Frontend: `http://{alb-dns}/`
+- Backend API: `http://{alb-dns}/api`
+- Swagger UI: `http://{alb-dns}/api/swagger-ui.html`
+- Health Check: `http://{alb-dns}/api/actuator/health`
 
 ## 🗄️ Database Details
 
@@ -119,10 +115,10 @@ This will:
 
 ## 🛠️ Troubleshooting
 
-### DNS Not Resolving:
-- Check if Route53 hosted zone ID is configured in GitHub secrets
-- DNS propagation can take 5-10 minutes
-- Verify ALB is healthy in AWS console
+### ALB Not Accessible:
+- Check if ALB is healthy in AWS console
+- Verify security groups allow HTTP traffic on port 80
+- Check if target groups have healthy targets
 
 ### Backend Can't Connect to Database:
 - Check CloudWatch logs for connection errors
@@ -148,19 +144,21 @@ To destroy infrastructure for an environment:
 ## 📝 Important Notes
 
 1. **HTTPS Setup**: Currently using HTTP. For production, you'll need to:
-   - Add SSL certificates to ALB
+   - Add SSL certificates to ALB (can use AWS Certificate Manager)
    - Create HTTPS listeners
    - Update security groups
 
-2. **Database Backups**: RDS is configured with 7-day backup retention
+2. **Fixed URLs**: The ALB DNS name remains constant across deployments, providing stable endpoints for your team and customers
 
-3. **Scaling**: Services are set to 1 task. Increase for production.
+3. **Database Backups**: RDS is configured with 7-day backup retention
 
-4. **Environment Isolation**: Each environment has separate:
+4. **Scaling**: Services are set to 1 task. Increase for production.
+
+5. **Environment Isolation**: Each environment has separate:
    - Database
    - ECS services
    - Security groups
-   - DNS records
+   - ALB with unique DNS name
 
 ## 🔐 Security Considerations
 

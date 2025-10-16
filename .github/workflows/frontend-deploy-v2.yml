@@ -51,11 +51,14 @@ jobs:
         echo "🔍 Phase 1: Fetching Infrastructure Details"
         echo "=========================================="
         
-        # Get backend URL
-        BACKEND_URL=$(aws ssm get-parameter \
-          --name /${ENV_NAME}/backend/url \
+        # Get ALB DNS
+        ALB_DNS=$(aws ssm get-parameter \
+          --name /${ENV_NAME}/alb/dns \
           --query 'Parameter.Value' \
           --output text)
+        
+        # Backend URL is the ALB DNS with /api path
+        BACKEND_URL="$ALB_DNS/api"
         
         if [[ -z "$BACKEND_URL" ]]; then
           echo "❌ Backend URL not found. Please run infrastructure setup first."
@@ -79,6 +82,7 @@ jobs:
         REPOSITORY_URI=$(aws ecr describe-repositories --repository-names $ECR_REPOSITORY --query 'repositories[0].repositoryUri' --output text)
         
         echo "backend_url=$BACKEND_URL" >> $GITHUB_OUTPUT
+        echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
         echo "target_group_arn=$TARGET_GROUP_ARN" >> $GITHUB_OUTPUT
         echo "repository_uri=$REPOSITORY_URI" >> $GITHUB_OUTPUT
         echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
@@ -291,12 +295,12 @@ jobs:
         echo ""
         echo "🌐 Access URLs:"
         echo "=============="
-        echo "Frontend URL: http://tokenization-$ENV_NAME.sabpaisa.in"
-        echo "Backend API: http://tokenization-$ENV_NAME.api.sabpaisa.in"
+        echo "Frontend URL: http://${{ steps.infra.outputs.alb_dns }}"
+        echo "Backend API: http://${{ steps.infra.outputs.alb_dns }}/api"
         echo ""
         echo "📋 AWS Console Links:"
         echo "===================="
         echo "ECS Service: https://console.aws.amazon.com/ecs/home?region=$AWS_REGION#/clusters/$ECS_CLUSTER/services/$ECS_SERVICE/tasks"
         echo "CloudWatch Logs: https://console.aws.amazon.com/cloudwatch/home?region=$AWS_REGION#logStream:group=/ecs/$ECS_SERVICE"
         echo ""
-        echo "📝 Note: DNS propagation may take a few minutes. The frontend will be accessible at the fixed URL once DNS updates."
+        echo "📝 Note: The frontend is accessible via the ALB at the fixed URL shown above."
