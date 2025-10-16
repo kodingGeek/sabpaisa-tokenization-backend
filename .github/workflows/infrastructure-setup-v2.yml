@@ -209,7 +209,7 @@ jobs:
             --port 8082 \
             --vpc-id ${VPC_ID} \
             --target-type ip \
-            --health-check-path / \
+            --health-check-path /actuator/health \
             --health-check-interval-seconds 30 \
             --health-check-timeout-seconds 10 \
             --healthy-threshold-count 2 \

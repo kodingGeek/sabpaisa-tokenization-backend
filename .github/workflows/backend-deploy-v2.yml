@@ -224,6 +224,10 @@ jobs:
                   "value": "8082"
                 },
                 {
+                  "name": "SERVER_SERVLET_CONTEXT_PATH",
+                  "value": "/api"
+                },
+                {
                   "name": "SPRING_DATASOURCE_URL",
                   "value": "jdbc:postgresql://${{ steps.infra.outputs.db_endpoint }}/sabpaisa_tokenization"
                 },
