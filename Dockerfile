@@ -29,5 +29,9 @@ EXPOSE 8082
 ENV SPRING_PROFILES_ACTIVE=docker
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
 
-# Run the application directly
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8082/actuator/health || exit 1
+
+# Run the application with environment variable substitution
+ENTRYPOINT ["sh", "-c", "java ${JAVA_OPTS} -jar app.jar"]

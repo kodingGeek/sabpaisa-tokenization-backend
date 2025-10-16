@@ -1,0 +1,273 @@
+name: Deploy Backend to ECS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+        - prod
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: sabpaisa-tokenization-backend
+  ECS_CLUSTER: sabpaisa-tokenization-cluster
+  ECS_SERVICE: sabpaisa-tokenization-backend
+  CONTAINER_NAME: backend
+  TASK_FAMILY: sabpaisa-tokenization-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      
+    - name: Phase 1 - Infrastructure Discovery
+      id: infra
+      run: |
+        echo "🔍 Phase 1: Infrastructure Discovery"
+        echo "===================================="
+        
+        # Get AWS account info
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        TIMESTAMP=$(date +%Y%m%d%H%M%S)
+        
+        echo "account_id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
+        echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+        
+        # Ensure ECR repository exists
+        aws ecr describe-repositories --repository-names $ECR_REPOSITORY 2>/dev/null || \
+        aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true
+        
+        REPOSITORY_URI=$(aws ecr describe-repositories --repository-names $ECR_REPOSITORY --query 'repositories[0].repositoryUri' --output text)
+        echo "repository_uri=$REPOSITORY_URI" >> $GITHUB_OUTPUT
+        
+        # Find ALB
+        ALB_ARN=""
+        ALB_DNS=""
+        ALB_VPC=""
+        
+        # Try to find sabpaisa-tokenization-alb
+        ALB_INFO=$(aws elbv2 describe-load-balancers --names sabpaisa-tokenization-alb 2>/dev/null || echo "")
+        if [ ! -z "$ALB_INFO" ]; then
+          ALB_ARN=$(echo "$ALB_INFO" | grep -o '"LoadBalancerArn": "[^"]*"' | cut -d'"' -f4 || echo "")
+          ALB_DNS=$(echo "$ALB_INFO" | grep -o '"DNSName": "[^"]*"' | cut -d'"' -f4 || echo "")
+          ALB_VPC=$(echo "$ALB_INFO" | grep -o '"VpcId": "[^"]*"' | cut -d'"' -f4 || echo "")
+        fi
+        
+        echo "alb_arn=$ALB_ARN" >> $GITHUB_OUTPUT
+        echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
+        
+        # Determine VPC
+        if [ ! -z "$ALB_VPC" ]; then
+          VPC_ID=$ALB_VPC
+        else
+          VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text)
+        fi
+        echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
+        
+        # Get subnets from VPC
+        SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --query 'Subnets[*].SubnetId' --output text)
+        SUBNET_1=$(echo $SUBNETS | cut -d' ' -f1)
+        SUBNET_2=$(echo $SUBNETS | cut -d' ' -f2)
+        
+        if [ -z "$SUBNET_2" ]; then
+          SUBNET_2=$SUBNET_1
+        fi
+        
+        echo "subnet_1=$SUBNET_1" >> $GITHUB_OUTPUT
+        echo "subnet_2=$SUBNET_2" >> $GITHUB_OUTPUT
+        
+        echo "✅ Infrastructure Discovery Complete"
+        
+    - name: Phase 2 - Build and Push Docker Image
+      id: docker
+      run: |
+        echo "🐳 Phase 2: Building and Pushing Docker Image"
+        echo "==========================================="
+        
+        IMAGE_TAG="${{ steps.infra.outputs.timestamp }}"
+        IMAGE_URI="${{ steps.infra.outputs.repository_uri }}:$IMAGE_TAG"
+        
+        echo "Building backend image: $IMAGE_URI"
+        
+        # Build with Maven and Docker
+        docker build -t $IMAGE_URI .
+        
+        echo "Pushing image to ECR..."
+        docker push $IMAGE_URI
+        docker tag $IMAGE_URI ${{ steps.infra.outputs.repository_uri }}:latest
+        docker push ${{ steps.infra.outputs.repository_uri }}:latest
+        
+        echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+        echo "✅ Docker image built and pushed successfully"
+        
+    - name: Phase 3 - Create Network Resources
+      id: network
+      run: |
+        echo "🔒 Phase 3: Creating Network Resources"
+        echo "===================================="
+        
+        # Create Security Group for Backend
+        SG_NAME="backend-sg-${{ steps.infra.outputs.timestamp }}"
+        SG_ID=$(aws ec2 create-security-group \
+          --group-name $SG_NAME \
+          --description "Backend security group" \
+          --vpc-id ${{ steps.infra.outputs.vpc_id }} \
+          --query 'GroupId' \
+          --output text)
+        
+        # Allow HTTP traffic on port 8082
+        aws ec2 authorize-security-group-ingress \
+          --group-id $SG_ID \
+          --protocol tcp \
+          --port 8082 \
+          --cidr 0.0.0.0/0
+        
+        echo "security_group=$SG_ID" >> $GITHUB_OUTPUT
+        
+        # Create Target Group for Backend
+        TG_NAME="be-tg-${{ steps.infra.outputs.timestamp }}"
+        # Truncate to 32 characters if needed
+        TG_NAME=${TG_NAME:0:32}
+        
+        TG_ARN=$(aws elbv2 create-target-group \
+          --name $TG_NAME \
+          --protocol HTTP \
+          --port 8082 \
+          --vpc-id ${{ steps.infra.outputs.vpc_id }} \
+          --target-type ip \
+          --health-check-protocol HTTP \
+          --health-check-path /actuator/health \
+          --health-check-interval-seconds 30 \
+          --health-check-timeout-seconds 10 \
+          --healthy-threshold-count 2 \
+          --unhealthy-threshold-count 3 \
+          --query 'TargetGroups[0].TargetGroupArn' \
+          --output text)
+        
+        echo "target_group_arn=$TG_ARN" >> $GITHUB_OUTPUT
+        echo "✅ Network resources created"
+        
+    - name: Phase 4 - Deploy Service
+      id: deploy
+      run: |
+        echo "🚀 Phase 4: Deploying Backend ECS Service"
+        echo "========================================"
+        
+        # Register task definition
+        cat > /tmp/task-definition.json <<EOF
+        {
+          "family": "$TASK_FAMILY",
+          "networkMode": "awsvpc",
+          "requiresCompatibilities": ["FARGATE"],
+          "cpu": "1024",
+          "memory": "2048",
+          "executionRoleArn": "arn:aws:iam::${{ steps.infra.outputs.account_id }}:role/ecsTaskExecutionRole",
+          "containerDefinitions": [
+            {
+              "name": "$CONTAINER_NAME",
+              "image": "${{ steps.docker.outputs.image_uri }}",
+              "portMappings": [{
+                "containerPort": 8082,
+                "protocol": "tcp"
+              }],
+              "essential": true,
+              "environment": [
+                {
+                  "name": "SPRING_PROFILES_ACTIVE",
+                  "value": "dev"
+                },
+                {
+                  "name": "SERVER_PORT",
+                  "value": "8082"
+                }
+              ],
+              "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                  "awslogs-create-group": "true",
+                  "awslogs-group": "/ecs/$ECS_SERVICE",
+                  "awslogs-region": "$AWS_REGION",
+                  "awslogs-stream-prefix": "ecs"
+                }
+              }
+            }
+          ]
+        }
+        EOF
+        
+        aws ecs register-task-definition --cli-input-json file:///tmp/task-definition.json
+        
+        # Create service
+        NETWORK_CONFIG="{
+          \"awsvpcConfiguration\": {
+            \"subnets\": [\"${{ steps.infra.outputs.subnet_1 }}\", \"${{ steps.infra.outputs.subnet_2 }}\"],
+            \"securityGroups\": [\"${{ steps.network.outputs.security_group }}\"],
+            \"assignPublicIp\": \"ENABLED\"
+          }
+        }"
+        
+        # Delete old service if exists
+        aws ecs delete-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --force 2>/dev/null || true
+        sleep 10
+        
+        # Create new service
+        aws ecs create-service \
+          --cluster $ECS_CLUSTER \
+          --service-name $ECS_SERVICE \
+          --task-definition $TASK_FAMILY \
+          --desired-count 1 \
+          --launch-type FARGATE \
+          --network-configuration "$NETWORK_CONFIG"
+        
+        echo "✅ Backend service deployed"
+        
+    - name: Deployment Summary
+      if: always()
+      run: |
+        echo "📊 Backend Deployment Summary"
+        echo "============================"
+        echo "Environment: ${{ github.event.inputs.environment }}"
+        echo "Docker Image: ${{ steps.docker.outputs.image_uri || 'Not built' }}"
+        echo "ECS Service: $ECS_SERVICE"
+        echo ""
+        
+        # Try to get task public IP
+        sleep 30
+        TASK_ARN=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $ECS_SERVICE --query 'taskArns[0]' --output text 2>/dev/null || echo "")
+        if [ ! -z "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ]; then
+          ENI_ID=$(aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks $TASK_ARN --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value | [0]' --output text 2>/dev/null || echo "")
+          if [ ! -z "$ENI_ID" ] && [ "$ENI_ID" != "None" ]; then
+            PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI_ID --query 'NetworkInterfaces[0].Association.PublicIp' --output text 2>/dev/null || echo "")
+            if [ ! -z "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "None" ]; then
+              echo "🌐 Backend URLs:"
+              echo "  - Health: http://$PUBLIC_IP:8082/actuator/health"
+              echo "  - Swagger: http://$PUBLIC_IP:8082/swagger-ui.html"
+              echo "  - API Base: http://$PUBLIC_IP:8082/api/v1"
+            fi
+          fi
+        fi
+        
+        echo ""
+        echo "📋 AWS Console Links:"
+        echo "ECS Service: https://console.aws.amazon.com/ecs/home?region=$AWS_REGION#/clusters/$ECS_CLUSTER/services/$ECS_SERVICE/tasks"
