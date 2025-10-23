@@ -1,0 +1,42 @@
+# Build stage with proper Lombok support
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /app
+
+# Copy POM file first for better caching
+COPY pom.xml .
+
+# Download dependencies
+RUN mvn dependency:go-offline -B
+
+# Copy source code
+COPY src ./src
+
+# Build with proper annotation processing
+RUN mvn clean package -DskipTests -Dspring.profiles.active=local
+
+# Runtime stage
+FROM eclipse-temurin:17-jre-alpine
+WORKDIR /app
+
+# Copy the built JAR
+COPY --from=build /app/target/*.jar app.jar
+
+# Create necessary directories for logs
+RUN mkdir -p /var/log/sabpaisa
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Expose port
+EXPOSE 8082
+
+# Set environment variables
+ENV SPRING_PROFILES_ACTIVE=local
+ENV JAVA_OPTS="-Xmx512m -Xms256m -Dspring.profiles.active=local"
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8082/actuator/health || exit 1
+
+# Run the application
+ENTRYPOINT ["sh", "-c", "java ${JAVA_OPTS} -jar app.jar"]

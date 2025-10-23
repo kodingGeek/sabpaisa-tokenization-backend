@@ -1,0 +1,230 @@
+# Staging Environment Configuration
+# Mirrors production but with different endpoints and relaxed security for testing
+
+spring:
+  config:
+    activate:
+      on-profile: stage
+      
+  datasource:
+    # Staging database configuration from environment variables
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://stage-db-endpoint:5432/sabpaisa_tokenization}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 20000
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-test-query: SELECT 1
+    
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate # Validate schema but don't modify
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+    show-sql: false
+    
+  redis:
+    host: ${REDIS_HOST:stage-redis-endpoint}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    timeout: 5s
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 5
+        min-idle: 1
+    
+  cache:
+    type: redis
+    redis:
+      time-to-live: 1800000 # 30 minutes
+      cache-null-values: false
+    
+  security:
+    jwt:
+      # Staging JWT secret from environment variable
+      secret-key: ${JWT_SECRET_KEY:STAGE_635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+      expiration: ${JWT_EXPIRATION:7200000} # 2 hours for easier testing
+      
+  mail:
+    host: ${MAIL_HOST:mailhog} # Use MailHog or similar for staging
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+
+server:
+  port: ${SERVER_PORT:8082}
+  servlet:
+    context-path: ${SERVER_SERVLET_CONTEXT_PATH:/api}
+  error:
+    include-message: always # Show messages in staging for debugging
+    include-binding-errors: always
+    include-stacktrace: on-param # Show stack trace with ?trace=true
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+  forward-headers-strategy: native # For AWS ALB
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true # Enable Swagger in staging
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    config-url: /v3/api-docs/swagger-config
+    try-it-out-enabled: true
+    
+logging:
+  level:
+    root: INFO
+    com.sabpaisa.tokenization: DEBUG
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    org.hibernate: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: /var/log/sabpaisa/tokenization-service-stage.log
+    max-size: 10MB
+    max-history: 15
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*" # Expose all endpoints for staging testing
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Application specific properties
+app:
+  # Encryption configuration
+  encryption:
+    enabled: true
+    master-key: ${ENCRYPTION_MASTER_KEY:STAGE_JSkxTjC7p8YhQ2HvWlFqZlK8mVjN9XrBcDfGhJkMnPqTsUvWxYz}
+    algorithm: AES/GCM/NoPadding
+    exclude-paths: /actuator/**,/v3/api-docs/**,/swagger-ui/**
+  
+  # Notification configuration
+  notification:
+    enabled: true
+    from-email: ${NOTIFICATION_FROM_EMAIL:staging@sabpaisa.com}
+    async: true
+    retry-attempts: 2
+  
+  # SMS configuration
+  sms:
+    provider: ${SMS_PROVIDER:mock} # Can use mock or real provider
+    api-key: ${SMS_API_KEY:STAGE_SMS_KEY}
+    sender-id: ${SMS_SENDER_ID:SBPSTG}
+    region: ${AWS_REGION:ap-south-1}
+  
+  # Monetization configuration
+  monetization:
+    enabled: true
+    free-tier-tokens: ${FREE_TIER_TOKENS:5000} # More tokens for testing
+    rate-limit-per-minute: 200 # Higher limits for load testing
+    rate-limit-per-hour: 5000
+  
+  # Scheduled tasks
+  scheduling:
+    enabled: true
+    thread-pool-size: 3
+    
+  # Security configuration
+  security:
+    rate-limiting:
+      enabled: true
+      requests-per-minute: 120 # More lenient for testing
+      requests-per-hour: 2000
+    ip-whitelist:
+      enabled: false # Disable IP whitelist in staging
+    
+  # AWS configuration
+  aws:
+    region: ${AWS_REGION:ap-south-1}
+    s3:
+      bucket: ${S3_BUCKET:sabpaisa-tokenization-stage}
+    kms:
+      key-id: ${KMS_KEY_ID:}
+    
+  # CORS configuration for staging
+  cors:
+    allowed-origins: 
+      - http://localhost:3000
+      - http://localhost:3001
+      - https://staging.tokenization.sabpaisa.com
+      - http://*.elb.amazonaws.com
+    allowed-methods: "*"
+    allowed-headers: "*"
+    allow-credentials: true
+    max-age: 3600
+
+# Feature flags for staging - all enabled for testing
+feature:
+  biometric:
+    enabled: true
+  enterprise:
+    enabled: true
+  bulk-tokenization:
+    enabled: true
+    max-batch-size: 500 # Lower than prod for safety
+  fraud-detection:
+    enabled: true
+    threshold: 0.6 # Lower threshold for testing
+  quantum-encryption:
+    enabled: true # Test new features in staging
+  multi-cloud:
+    enabled: true
+    
+# Test data configuration for staging
+test-data:
+  enabled: ${TEST_DATA_ENABLED:true}
+  auto-generate: true
+  sample-size: 1000
+  
+# Resilience configuration - more lenient for staging
+resilience4j:
+  circuitbreaker:
+    instances:
+      payment-service:
+        sliding-window-size: 50
+        permitted-number-of-calls-in-half-open-state: 5
+        wait-duration-in-open-state: 30s
+        failure-rate-threshold: 60 # Higher threshold
+        event-consumer-buffer-size: 10
+  retry:
+    instances:
+      payment-service:
+        max-attempts: 2
+        wait-duration: 500ms
+  ratelimiter:
+    instances:
+      api:
+        limit-for-period: 2000
+        limit-refresh-period: 1m
+        timeout-duration: 0s

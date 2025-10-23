@@ -1,0 +1,157 @@
+# Local Development Configuration
+# This profile uses H2 in-memory database for local development without external dependencies
+
+spring:
+  config:
+    activate:
+      on-profile: local
+      
+  datasource:
+    url: jdbc:h2:mem:sabpaisa_tokenization_local
+    username: sa
+    password: 
+    driver-class-name: org.h2.Driver
+    hikari:
+      connection-timeout: 20000
+      maximum-pool-size: 5
+    
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        format_sql: true
+        use_sql_comments: true
+    show-sql: true
+    
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      settings:
+        web-allow-others: true
+        trace: false
+        
+  redis:
+    # Use embedded Redis or mock for local development
+    host: localhost
+    port: 6379
+    timeout: 2s
+    
+  cache:
+    type: simple # Use simple cache for local development
+    
+  security:
+    jwt:
+      # Local development JWT secret - NEVER use in production
+      secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      expiration: 86400000 # 24 hours
+
+server:
+  port: 8082
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-stacktrace: always # Show stack traces in local
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    config-url: /v3/api-docs/swagger-config
+    try-it-out-enabled: true
+    
+logging:
+  level:
+    root: INFO
+    com.sabpaisa.tokenization: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.springframework.data.redis: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*" # Expose all actuator endpoints for local development
+  endpoint:
+    health:
+      show-details: always
+
+# Application specific properties
+app:
+  # Encryption configuration
+  encryption:
+    enabled: false # Disable encryption for easier debugging
+    master-key: JSkxTjC7p8YhQ2HvWlFqZlK8mVjN9XrBcDfGhJkMnPqTsUvWxYzLOCAL
+    exclude-paths: /**
+  
+  # Notification configuration
+  notification:
+    enabled: false # Disable notifications for local
+    from-email: local@sabpaisa.com
+  
+  # SMS configuration
+  sms:
+    provider: mock # Always use mock for local
+    api-key: MOCK_API_KEY
+    sender-id: SBPLOCAL
+  
+  # Mail configuration for local
+  mail:
+    host: localhost
+    port: 1025 # MailHog or similar
+    username: 
+    password: 
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+  
+  # Monetization configuration
+  monetization:
+    enabled: true
+    free-tier-tokens: 10000 # More tokens for testing
+  
+  # Scheduled tasks
+  scheduling:
+    enabled: false # Disable scheduled tasks for local
+    
+  # Mock mode
+  mock-mode:
+    enabled: true
+    
+  # CORS configuration for local development
+  cors:
+    allowed-origins: 
+      - http://localhost:3000
+      - http://localhost:3001
+      - http://localhost:8080
+    allowed-methods: "*"
+    allowed-headers: "*"
+    allow-credentials: true
+
+# Feature flags for local development
+feature:
+  biometric:
+    enabled: true
+  enterprise:
+    enabled: true
+  bulk-tokenization:
+    enabled: true
+  fraud-detection:
+    enabled: false # Disable external fraud detection for local
+  quantum-encryption:
+    enabled: false
+  multi-cloud:
+    enabled: false
