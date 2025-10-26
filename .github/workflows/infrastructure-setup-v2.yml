@@ -267,6 +267,42 @@ jobs:
         echo "dns_name=${ALB_DNS}" >> $GITHUB_OUTPUT
         echo "ALB DNS: ${ALB_DNS}"
     
+    - name: Setup ECS Cluster
+      if: github.event.inputs.action != 'destroy'
+      run: |
+        echo "🚢 Setting up ECS Cluster"
+        echo "========================"
+        
+        CLUSTER_NAME="${{ env.PROJECT_NAME }}-cluster"
+        
+        # Check if cluster exists
+        CLUSTER_EXISTS=$(aws ecs describe-clusters \
+          --clusters ${CLUSTER_NAME} \
+          --query 'clusters[?status==`ACTIVE`].clusterName' \
+          --output text 2>/dev/null || echo "NOT_FOUND")
+        
+        if [ "$CLUSTER_EXISTS" = "NOT_FOUND" ] || [ -z "$CLUSTER_EXISTS" ]; then
+          echo "Creating new ECS cluster..."
+          aws ecs create-cluster \
+            --cluster-name ${CLUSTER_NAME} \
+            --capacity-providers FARGATE FARGATE_SPOT \
+            --default-capacity-provider-strategy capacityProvider=FARGATE,weight=1
+          echo "✅ ECS cluster created: ${CLUSTER_NAME}"
+        else
+          echo "✅ ECS cluster already exists: ${CLUSTER_NAME}"
+        fi
+        
+        # Create ECR repositories if they don't exist
+        echo "Setting up ECR repositories..."
+        for REPO in backend frontend; do
+          aws ecr describe-repositories \
+            --repository-names ${PROJECT_NAME}-${REPO} 2>/dev/null || \
+          aws ecr create-repository \
+            --repository-name ${PROJECT_NAME}-${REPO} \
+            --image-scanning-configuration scanOnPush=true
+          echo "✅ ECR repository ready: ${PROJECT_NAME}-${REPO}"
+        done
+    
     - name: Store Infrastructure Details
       if: github.event.inputs.action != 'destroy'
       run: |
@@ -317,9 +353,26 @@ jobs:
           aws elbv2 delete-load-balancer --load-balancer-arn ${ALB_ARN}
         fi
         
+        # Delete ECS services if they exist
+        CLUSTER_NAME="${{ env.PROJECT_NAME }}-cluster"
+        for SERVICE in backend-service-${ENV_NAME} frontend-service-${ENV_NAME}; do
+          aws ecs update-service \
+            --cluster ${CLUSTER_NAME} \
+            --service ${SERVICE} \
+            --desired-count 0 2>/dev/null || true
+          
+          aws ecs delete-service \
+            --cluster ${CLUSTER_NAME} \
+            --service ${SERVICE} \
+            --force 2>/dev/null || true
+        done
+        
+        # Note: We're not deleting the ECS cluster as it might be shared
+        
         # Delete parameters
         aws ssm delete-parameter --name /${ENV_NAME}/database/endpoint 2>/dev/null || true
         aws ssm delete-parameter --name /${ENV_NAME}/backend/target-group-arn 2>/dev/null || true
         aws ssm delete-parameter --name /${ENV_NAME}/frontend/target-group-arn 2>/dev/null || true
+        aws ssm delete-parameter --name /${ENV_NAME}/alb/dns 2>/dev/null || true
         
         echo "✅ Cleanup complete"
