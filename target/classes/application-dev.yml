@@ -1,37 +1,81 @@
+# Development Environment Configuration
+# For AWS development environment with real PostgreSQL database
+
 spring:
-  application:
-    name: tokenization-service
-    
+  config:
+    activate:
+      on-profile: dev
+      
   datasource:
-    url: jdbc:postgresql://localhost:5432/sabpaisa_tokenization
-    username: postgres
-    password: password
+    # Development database configuration from environment variables or defaults
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://dev-db-endpoint:5432/sabpaisa_tokenization}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:devpassword}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 20000
+      maximum-pool-size: 5
+      minimum-idle: 1
+      idle-timeout: 300000
+      max-lifetime: 1800000
     
   jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: update
+      ddl-auto: update # Auto-update schema in dev
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
-    show-sql: true
+        use_sql_comments: true
+    show-sql: true # Show SQL in dev for debugging
     
   redis:
-    host: localhost
-    port: 6379
-    timeout: 10s
+    host: ${REDIS_HOST:dev-redis-endpoint}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    timeout: 5s
+    lettuce:
+      pool:
+        max-active: 5
+        max-idle: 3
+        min-idle: 1
+    
+  cache:
+    type: redis
+    redis:
+      time-to-live: 600000 # 10 minutes
+      cache-null-values: false
     
   security:
     jwt:
-      secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
-      expiration: 86400000 # 24 hours in milliseconds
+      # Development JWT secret - should still be externalized
+      secret-key: ${JWT_SECRET_KEY:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+      expiration: ${JWT_EXPIRATION:86400000} # 24 hours
+      
+  mail:
+    host: ${MAIL_HOST:mailhog} # Use MailHog for dev
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
 
 server:
-  port: 8082
+  port: ${SERVER_PORT:8082}
+  servlet:
+    context-path: ${SERVER_SERVLET_CONTEXT_PATH:/api}
   error:
     include-message: always
     include-binding-errors: always
+    include-stacktrace: always # Full stack traces in dev
+  compression:
+    enabled: true
+  forward-headers-strategy: native # For AWS ALB
 
 springdoc:
   api-docs:
@@ -39,9 +83,123 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
     enabled: true
+    config-url: /v3/api-docs/swagger-config
+    try-it-out-enabled: true
+    persist-authorization: true
     
 logging:
   level:
+    root: INFO
     com.sabpaisa.tokenization: DEBUG
-    org.springframework.web: INFO
-    org.hibernate: INFO
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.springframework.data.redis: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: /var/log/sabpaisa/tokenization-service-dev.log
+    max-size: 10MB
+    max-history: 7
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*" # All endpoints available in dev
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Application specific properties
+app:
+  # Encryption configuration
+  encryption:
+    enabled: true
+    master-key: ${ENCRYPTION_MASTER_KEY:JSkxTjC7p8YhQ2HvWlFqZlK8mVjN9XrBcDfGhJkMnPqTsUvWxYz}
+    exclude-paths: /actuator/**,/v3/api-docs/**,/swagger-ui/**
+  
+  # Notification configuration
+  notification:
+    enabled: true
+    from-email: ${NOTIFICATION_FROM_EMAIL:dev@sabpaisa.com}
+    async: true
+  
+  # SMS configuration
+  sms:
+    provider: ${SMS_PROVIDER:mock} # Mock by default, can switch to real
+    api-key: ${SMS_API_KEY:DEVSMSKEY}
+    sender-id: ${SMS_SENDER_ID:SBPDEV}
+  
+  # Monetization configuration
+  monetization:
+    enabled: true
+    free-tier-tokens: ${FREE_TIER_TOKENS:2000}
+    rate-limit-per-minute: 100
+    rate-limit-per-hour: 1000
+  
+  # Scheduled tasks
+  scheduling:
+    enabled: true
+    thread-pool-size: 2
+    
+  # Security configuration
+  security:
+    rate-limiting:
+      enabled: false # Disable rate limiting in dev
+      requests-per-minute: 1000
+      requests-per-hour: 10000
+    ip-whitelist:
+      enabled: false
+    
+  # AWS configuration
+  aws:
+    region: ${AWS_REGION:ap-south-1}
+    s3:
+      bucket: ${S3_BUCKET:sabpaisa-tokenization-dev}
+    kms:
+      key-id: ${KMS_KEY_ID:}
+    
+  # CORS configuration for development
+  cors:
+    allowed-origins: 
+      - http://localhost:3000
+      - http://localhost:3001
+      - http://localhost:8080
+      - https://dev.tokenization.sabpaisa.com
+      - http://*.elb.amazonaws.com
+    allowed-methods: "*"
+    allowed-headers: "*"
+    allow-credentials: true
+    max-age: 3600
+
+# Feature flags for development - all enabled
+feature:
+  biometric:
+    enabled: true
+  enterprise:
+    enabled: true
+  bulk-tokenization:
+    enabled: true
+    max-batch-size: 100
+  fraud-detection:
+    enabled: true
+    threshold: 0.5
+  quantum-encryption:
+    enabled: false
+  multi-cloud:
+    enabled: true
+    
+# Development utilities
+dev-tools:
+  debug-mode: true
+  sql-logging: true
+  request-logging: true
+  response-logging: true

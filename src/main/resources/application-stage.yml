@@ -54,7 +54,7 @@ spring:
   security:
     jwt:
       # Staging JWT secret from environment variable
-      secret-key: ${JWT_SECRET_KEY:STAGE_635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+      secret-key: ${JWT_SECRET_KEY:635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
       expiration: ${JWT_EXPIRATION:7200000} # 2 hours for easier testing
       
   mail:
@@ -125,7 +125,7 @@ app:
   # Encryption configuration
   encryption:
     enabled: true
-    master-key: ${ENCRYPTION_MASTER_KEY:STAGE_JSkxTjC7p8YhQ2HvWlFqZlK8mVjN9XrBcDfGhJkMnPqTsUvWxYz}
+    master-key: ${ENCRYPTION_MASTER_KEY:JSkxTjC7p8YhQ2HvWlFqZlK8mVjN9XrBcDfGhJkMnPqTsUvWxYz}
     algorithm: AES/GCM/NoPadding
     exclude-paths: /actuator/**,/v3/api-docs/**,/swagger-ui/**
   

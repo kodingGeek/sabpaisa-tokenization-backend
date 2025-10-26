@@ -32,6 +32,7 @@ D:\Manish\AI-hackathon-Tokenization\sabpaisa-tokenization\backend\src\main\java\
 D:\Manish\AI-hackathon-Tokenization\sabpaisa-tokenization\backend\src\main\java\com\sabpaisa\tokenization\presentation\dto\RetokenizationResult.java
 D:\Manish\AI-hackathon-Tokenization\sabpaisa-tokenization\backend\src\main\java\com\sabpaisa\tokenization\cloud\EncryptedTokenData.java
 D:\Manish\AI-hackathon-Tokenization\sabpaisa-tokenization\backend\src\main\java\com\sabpaisa\tokenization\dto\HybridTokenizeRequest.java
+D:\Manish\AI-hackathon-Tokenization\sabpaisa-tokenization\backend\src\main\java\com\sabpaisa\tokenization\config\LocalConfig.java
 D:\Manish\AI-hackathon-Tokenization\sabpaisa-tokenization\backend\src\main\java\com\sabpaisa\tokenization\repository\EnhancedTokenRepository.java
 D:\Manish\AI-hackathon-Tokenization\sabpaisa-tokenization\backend\src\main\java\com\sabpaisa\tokenization\repository\FraudDetectionRuleRepository.java
 D:\Manish\AI-hackathon-Tokenization\sabpaisa-tokenization\backend\src\main\java\com\sabpaisa\tokenization\entity\Merchant.java

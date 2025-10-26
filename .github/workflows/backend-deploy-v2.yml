@@ -258,6 +258,22 @@ jobs:
                 {
                   "name": "ALB_DNS",
                   "value": "${{ steps.infra.outputs.alb_dns }}"
+                },
+                {
+                  "name": "ENCRYPTION_MASTER_KEY",
+                  "value": "JSkxTjC7p8YhQ2HvWlFqZlK8mVjN9XrBcDfGhJkMnPqTsUvWxYz"
+                },
+                {
+                  "name": "JWT_SECRET_KEY",
+                  "value": "635266556A586E3272357538782F413F4428472B4B6250645367566B5970"
+                },
+                {
+                  "name": "REDIS_HOST",
+                  "value": "redis-not-configured-yet"
+                },
+                {
+                  "name": "REDIS_PORT",
+                  "value": "6379"
                 }
               ],
               "logConfiguration": {
