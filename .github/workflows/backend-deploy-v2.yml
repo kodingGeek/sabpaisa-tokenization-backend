@@ -261,11 +261,11 @@ jobs:
                 },
                 {
                   "name": "ENCRYPTION_MASTER_KEY",
-                  "value": "JSkxTjC7p8YhQ2HvWlFqZlK8mVjN9XrBcDfGhJkMnPqTsUvWxYz"
+                  "value": "${{ secrets.ENCRYPTION_MASTER_KEY || 'JSkxTjC7p8YhQ2HvWlFqZlK8mVjN9XrBcDfGhJkMnPqTsUvWxYz' }}"
                 },
                 {
                   "name": "JWT_SECRET_KEY",
-                  "value": "635266556A586E3272357538782F413F4428472B4B6250645367566B5970"
+                  "value": "${{ secrets.JWT_SECRET_KEY || '635266556A586E3272357538782F413F4428472B4B6250645367566B5970' }}"
                 },
                 {
                   "name": "REDIS_HOST",
