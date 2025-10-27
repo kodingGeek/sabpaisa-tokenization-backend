@@ -82,7 +82,35 @@ jobs:
           VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
           
           if [ "$VPC_ID" = "None" ] || [ -z "$VPC_ID" ]; then
-            if [ "${{ github.event.inputs.environment }}" = "prod" ] && [ "${{ github.event.inputs.create_vpc }}" = "true" ]; then
+            # Handle auto mode first
+            if [ "${{ github.event.inputs.environment }}" = "prod" ] && [ "${{ github.event.inputs.create_vpc }}" = "auto" ]; then
+              echo "No default VPC found. Auto mode: Looking for a suitable existing VPC..."
+              
+              # Find VPCs with at least 2 subnets
+              SUITABLE_VPC=$(aws ec2 describe-vpcs --query 'Vpcs[?State==`available`].VpcId' --output text | while read vpc; do
+                SUBNET_COUNT=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$vpc" --query 'length(Subnets)' --output text)
+                if [ "$SUBNET_COUNT" -ge 2 ]; then
+                  echo "$vpc"
+                  break
+                fi
+              done)
+              
+              if [ -n "$SUITABLE_VPC" ] && [ "$SUITABLE_VPC" != "None" ]; then
+                echo "✅ Found suitable VPC: ${SUITABLE_VPC}"
+                VPC_ID="${SUITABLE_VPC}"
+                
+                # Show VPC details
+                VPC_NAME=$(aws ec2 describe-vpcs --vpc-ids ${VPC_ID} --query 'Vpcs[0].Tags[?Key==`Name`].Value|[0]' --output text)
+                VPC_CIDR=$(aws ec2 describe-vpcs --vpc-ids ${VPC_ID} --query 'Vpcs[0].CidrBlock' --output text)
+                echo "VPC Name: ${VPC_NAME:-No Name Tag}"
+                echo "VPC CIDR: ${VPC_CIDR}"
+                echo "Proceeding with existing VPC..."
+              else
+                echo "❌ No suitable VPC found with at least 2 subnets"
+                echo "Please create a VPC manually or delete an existing one"
+                exit 1
+              fi
+            elif [ "${{ github.event.inputs.environment }}" = "prod" ] && [ "${{ github.event.inputs.create_vpc }}" = "true" ]; then
               echo "No default VPC found. Checking VPC limits..."
               
               # Check current VPC count
