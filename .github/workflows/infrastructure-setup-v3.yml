@@ -1,0 +1,564 @@
+name: Infrastructure Setup V3
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - stage
+        - prod
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'create'
+        type: choice
+        options:
+        - create
+        - destroy
+      vpc_id:
+        description: 'VPC ID (optional - if not provided, will use default VPC or create new one for prod)'
+        required: false
+        type: string
+      create_vpc:
+        description: 'Create new VPC for production? (only used if vpc_id not provided and env is prod)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+
+env:
+  AWS_REGION: ap-south-1
+  PROJECT_NAME: sabpaisa-tokenization
+
+jobs:
+  setup-infrastructure:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    outputs:
+      db_endpoint: ${{ steps.database.outputs.endpoint }}
+      db_password: ${{ steps.database.outputs.password }}
+      alb_dns: ${{ steps.alb.outputs.dns_name }}
+      vpc_id: ${{ steps.vpc.outputs.vpc_id }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Set environment variables
+      run: |
+        echo "ENV_NAME=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+        echo "DB_IDENTIFIER=sabpaisa-tokenization-${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+        echo "ALB_NAME=sabpaisa-token-api-${{ github.event.inputs.environment }}-alb" >> $GITHUB_ENV
+    
+    - name: Setup VPC and Networking
+      id: vpc
+      if: github.event.inputs.action != 'destroy'
+      run: |
+        echo "🌐 Setting up VPC and Networking"
+        echo "================================="
+        
+        # Check if VPC ID was provided
+        if [ -n "${{ github.event.inputs.vpc_id }}" ]; then
+          echo "Using provided VPC ID: ${{ github.event.inputs.vpc_id }}"
+          VPC_ID="${{ github.event.inputs.vpc_id }}"
+        else
+          # Try to find default VPC
+          VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
+          
+          if [ "$VPC_ID" = "None" ] || [ -z "$VPC_ID" ]; then
+            if [ "${{ github.event.inputs.environment }}" = "prod" ] && [ "${{ github.event.inputs.create_vpc }}" = "true" ]; then
+              echo "No default VPC found. Creating new VPC for production..."
+              
+              # Create VPC
+              VPC_ID=$(aws ec2 create-vpc \
+                --cidr-block 10.0.0.0/16 \
+                --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-vpc}]" \
+                --query 'Vpc.VpcId' \
+                --output text)
+              
+              # Enable DNS hostnames
+              aws ec2 modify-vpc-attribute --vpc-id ${VPC_ID} --enable-dns-hostnames
+              
+              # Create Internet Gateway
+              IGW_ID=$(aws ec2 create-internet-gateway \
+                --tag-specifications "ResourceType=internet-gateway,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-igw}]" \
+                --query 'InternetGateway.InternetGatewayId' \
+                --output text)
+              
+              # Attach Internet Gateway to VPC
+              aws ec2 attach-internet-gateway --vpc-id ${VPC_ID} --internet-gateway-id ${IGW_ID}
+              
+              # Create subnets in different AZs
+              AVAILABILITY_ZONES=$(aws ec2 describe-availability-zones \
+                --query 'AvailabilityZones[?State==`available`].[ZoneName]' \
+                --output text | head -3)
+              
+              SUBNET_IDS=""
+              SUBNET_INDEX=1
+              
+              for AZ in ${AVAILABILITY_ZONES}; do
+                SUBNET_ID=$(aws ec2 create-subnet \
+                  --vpc-id ${VPC_ID} \
+                  --cidr-block "10.0.${SUBNET_INDEX}.0/24" \
+                  --availability-zone ${AZ} \
+                  --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-subnet-${AZ}}]" \
+                  --query 'Subnet.SubnetId' \
+                  --output text)
+                
+                SUBNET_IDS="${SUBNET_IDS} ${SUBNET_ID}"
+                SUBNET_INDEX=$((SUBNET_INDEX + 1))
+              done
+              
+              # Create route table
+              ROUTE_TABLE_ID=$(aws ec2 create-route-table \
+                --vpc-id ${VPC_ID} \
+                --tag-specifications "ResourceType=route-table,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-rt}]" \
+                --query 'RouteTable.RouteTableId' \
+                --output text)
+              
+              # Create route to Internet Gateway
+              aws ec2 create-route \
+                --route-table-id ${ROUTE_TABLE_ID} \
+                --destination-cidr-block 0.0.0.0/0 \
+                --gateway-id ${IGW_ID}
+              
+              # Associate route table with subnets
+              for SUBNET_ID in ${SUBNET_IDS}; do
+                aws ec2 associate-route-table \
+                  --subnet-id ${SUBNET_ID} \
+                  --route-table-id ${ROUTE_TABLE_ID}
+              done
+              
+              echo "✅ Created new VPC: ${VPC_ID}"
+            else
+              echo "❌ No default VPC found and not creating new VPC."
+              echo "Please provide a VPC ID or enable VPC creation for production."
+              exit 1
+            fi
+          else
+            echo "✅ Using default VPC: ${VPC_ID}"
+          fi
+        fi
+        
+        # Store VPC ID
+        echo "vpc_id=${VPC_ID}" >> $GITHUB_OUTPUT
+        
+        # Get subnets for this VPC
+        SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" --query 'Subnets[*].SubnetId' --output text)
+        echo "Found subnets: ${SUBNETS}"
+        
+        # Store VPC ID in parameter store for future use
+        aws ssm put-parameter \
+          --name /${ENV_NAME}/vpc/id \
+          --value ${VPC_ID} \
+          --type String \
+          --overwrite
+    
+    - name: Setup Database
+      id: database
+      if: github.event.inputs.action != 'destroy'
+      run: |
+        echo "🗄️ Setting up RDS Database"
+        echo "=========================="
+        
+        # Get VPC ID from previous step
+        VPC_ID="${{ steps.vpc.outputs.vpc_id }}"
+        
+        # Check if DB already exists
+        DB_EXISTS=$(aws rds describe-db-instances \
+          --db-instance-identifier ${DB_IDENTIFIER} \
+          --query 'DBInstances[0].DBInstanceIdentifier' \
+          --output text 2>/dev/null || echo "NOT_FOUND")
+        
+        if [ "$DB_EXISTS" = "NOT_FOUND" ]; then
+          echo "Creating new RDS instance..."
+          
+          # Generate secure password
+          DB_PASSWORD=$(openssl rand -base64 32 | tr -d '/=+' | cut -c1-25)
+          
+          # Get subnets for DB subnet group
+          SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" --query 'Subnets[*].SubnetId' --output text)
+          
+          # Create DB subnet group
+          echo "Creating DB subnet group..."
+          aws rds create-db-subnet-group \
+            --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group \
+            --db-subnet-group-description "Subnet group for ${DB_IDENTIFIER}" \
+            --subnet-ids ${SUBNETS} || {
+              echo "Failed to create DB subnet group. Checking subnet availability..."
+              # List available subnets
+              aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" --query 'Subnets[*].[SubnetId,AvailabilityZone]' --output table
+              exit 1
+            }
+          
+          # Create security group for RDS
+          SG_ID=$(aws ec2 create-security-group \
+            --group-name ${DB_IDENTIFIER}-sg \
+            --description "Security group for ${DB_IDENTIFIER}" \
+            --vpc-id ${VPC_ID} \
+            --query 'GroupId' \
+            --output text 2>/dev/null || \
+            aws ec2 describe-security-groups \
+              --filters "Name=group-name,Values=${DB_IDENTIFIER}-sg" \
+              --query 'SecurityGroups[0].GroupId' \
+              --output text)
+          
+          # Allow PostgreSQL access
+          aws ec2 authorize-security-group-ingress \
+            --group-id ${SG_ID} \
+            --protocol tcp \
+            --port 5432 \
+            --cidr 0.0.0.0/0 2>/dev/null || true
+          
+          # Create RDS instance
+          aws rds create-db-instance \
+            --db-instance-identifier ${DB_IDENTIFIER} \
+            --db-instance-class db.t3.micro \
+            --engine postgres \
+            --master-username postgres \
+            --master-user-password "${DB_PASSWORD}" \
+            --allocated-storage 20 \
+            --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group \
+            --vpc-security-group-ids ${SG_ID} \
+            --publicly-accessible \
+            --backup-retention-period 7 \
+            --no-multi-az \
+            --storage-encrypted
+          
+          echo "Waiting for database to be available..."
+          aws rds wait db-instance-available --db-instance-identifier ${DB_IDENTIFIER}
+          
+          # Store password in Secrets Manager
+          aws secretsmanager create-secret \
+            --name ${DB_IDENTIFIER}-password \
+            --secret-string "${DB_PASSWORD}" 2>/dev/null || \
+            aws secretsmanager update-secret \
+              --secret-id ${DB_IDENTIFIER}-password \
+              --secret-string "${DB_PASSWORD}"
+          
+          echo "password=${DB_PASSWORD}" >> $GITHUB_OUTPUT
+        else
+          echo "Database already exists"
+          # Retrieve password from Secrets Manager
+          DB_PASSWORD=$(aws secretsmanager get-secret-value \
+            --secret-id ${DB_IDENTIFIER}-password \
+            --query 'SecretString' \
+            --output text)
+          echo "password=${DB_PASSWORD}" >> $GITHUB_OUTPUT
+        fi
+        
+        # Get database endpoint
+        DB_ENDPOINT=$(aws rds describe-db-instances \
+          --db-instance-identifier ${DB_IDENTIFIER} \
+          --query 'DBInstances[0].Endpoint.Address' \
+          --output text)
+        
+        echo "endpoint=${DB_ENDPOINT}" >> $GITHUB_OUTPUT
+        echo "Database endpoint: ${DB_ENDPOINT}"
+    
+    - name: Setup Application Load Balancer
+      id: alb
+      if: github.event.inputs.action != 'destroy'
+      run: |
+        echo "🔄 Setting up Application Load Balancer"
+        echo "======================================"
+        
+        # Get VPC ID from previous step
+        VPC_ID="${{ steps.vpc.outputs.vpc_id }}"
+        
+        # Get subnets (need at least 2 in different AZs for ALB)
+        SUBNET_IDS=$(aws ec2 describe-subnets \
+          --filters "Name=vpc-id,Values=${VPC_ID}" \
+          --query 'Subnets[*].SubnetId' \
+          --output text | tr '\t' ' ')
+        
+        # Check if ALB exists
+        ALB_EXISTS=$(aws elbv2 describe-load-balancers \
+          --names ${ALB_NAME} \
+          --query 'LoadBalancers[0].LoadBalancerArn' \
+          --output text 2>/dev/null || echo "NOT_FOUND")
+        
+        if [ "$ALB_EXISTS" = "NOT_FOUND" ]; then
+          echo "Creating new ALB..."
+          
+          # Create security group for ALB
+          ALB_SG_ID=$(aws ec2 create-security-group \
+            --group-name ${ALB_NAME}-sg \
+            --description "Security group for ${ALB_NAME}" \
+            --vpc-id ${VPC_ID} \
+            --query 'GroupId' \
+            --output text)
+          
+          # Allow HTTP/HTTPS traffic
+          aws ec2 authorize-security-group-ingress \
+            --group-id ${ALB_SG_ID} \
+            --protocol tcp \
+            --port 80 \
+            --cidr 0.0.0.0/0
+          
+          aws ec2 authorize-security-group-ingress \
+            --group-id ${ALB_SG_ID} \
+            --protocol tcp \
+            --port 443 \
+            --cidr 0.0.0.0/0 2>/dev/null || true
+          
+          # Create ALB
+          ALB_ARN=$(aws elbv2 create-load-balancer \
+            --name ${ALB_NAME} \
+            --subnets ${SUBNET_IDS} \
+            --security-groups ${ALB_SG_ID} \
+            --scheme internet-facing \
+            --type application \
+            --ip-address-type ipv4 \
+            --query 'LoadBalancers[0].LoadBalancerArn' \
+            --output text)
+          
+          # Create target groups
+          # Backend target group
+          BACKEND_TG_ARN=$(aws elbv2 create-target-group \
+            --name ${ENV_NAME}-backend-tg-80 \
+            --protocol HTTP \
+            --port 8082 \
+            --vpc-id ${VPC_ID} \
+            --target-type ip \
+            --health-check-path /api/actuator/health \
+            --health-check-interval-seconds 30 \
+            --health-check-timeout-seconds 10 \
+            --healthy-threshold-count 2 \
+            --unhealthy-threshold-count 3 \
+            --query 'TargetGroups[0].TargetGroupArn' \
+            --output text)
+          
+          # Frontend target group
+          FRONTEND_TG_ARN=$(aws elbv2 create-target-group \
+            --name ${ENV_NAME}-frontend-tg-80 \
+            --protocol HTTP \
+            --port 80 \
+            --vpc-id ${VPC_ID} \
+            --target-type ip \
+            --health-check-path / \
+            --query 'TargetGroups[0].TargetGroupArn' \
+            --output text)
+          
+          # Create HTTP listener with rules
+          LISTENER_ARN=$(aws elbv2 create-listener \
+            --load-balancer-arn ${ALB_ARN} \
+            --protocol HTTP \
+            --port 80 \
+            --default-actions Type=forward,TargetGroupArn=${FRONTEND_TG_ARN} \
+            --query 'Listeners[0].ListenerArn' \
+            --output text)
+          
+          # Add rule for backend /api/*
+          aws elbv2 create-rule \
+            --listener-arn ${LISTENER_ARN} \
+            --priority 10 \
+            --conditions Field=path-pattern,Values="/api/*" \
+            --actions Type=forward,TargetGroupArn=${BACKEND_TG_ARN}
+          
+          # Store target group ARNs in parameter store
+          aws ssm put-parameter \
+            --name /${ENV_NAME}/backend/target-group-arn \
+            --value ${BACKEND_TG_ARN} \
+            --type String \
+            --overwrite
+          
+          aws ssm put-parameter \
+            --name /${ENV_NAME}/frontend/target-group-arn \
+            --value ${FRONTEND_TG_ARN} \
+            --type String \
+            --overwrite
+        fi
+        
+        # Get ALB DNS name
+        ALB_DNS=$(aws elbv2 describe-load-balancers \
+          --names ${ALB_NAME} \
+          --query 'LoadBalancers[0].DNSName' \
+          --output text)
+        
+        echo "dns_name=${ALB_DNS}" >> $GITHUB_OUTPUT
+        echo "ALB DNS: ${ALB_DNS}"
+    
+    - name: Setup ECS Cluster
+      if: github.event.inputs.action != 'destroy'
+      run: |
+        echo "🚢 Setting up ECS Cluster"
+        echo "========================"
+        
+        CLUSTER_NAME="${{ env.PROJECT_NAME }}-cluster"
+        
+        # Check if cluster exists
+        CLUSTER_EXISTS=$(aws ecs describe-clusters \
+          --clusters ${CLUSTER_NAME} \
+          --query 'clusters[?status==`ACTIVE`].clusterName' \
+          --output text 2>/dev/null || echo "NOT_FOUND")
+        
+        if [ "$CLUSTER_EXISTS" = "NOT_FOUND" ] || [ -z "$CLUSTER_EXISTS" ]; then
+          echo "Creating new ECS cluster..."
+          aws ecs create-cluster \
+            --cluster-name ${CLUSTER_NAME} \
+            --capacity-providers FARGATE FARGATE_SPOT \
+            --default-capacity-provider-strategy capacityProvider=FARGATE,weight=1
+          echo "✅ ECS cluster created: ${CLUSTER_NAME}"
+        else
+          echo "✅ ECS cluster already exists: ${CLUSTER_NAME}"
+        fi
+        
+        # Create ECR repositories if they don't exist
+        echo "Setting up ECR repositories..."
+        for REPO in backend frontend; do
+          aws ecr describe-repositories \
+            --repository-names ${PROJECT_NAME}-${REPO} 2>/dev/null || \
+          aws ecr create-repository \
+            --repository-name ${PROJECT_NAME}-${REPO} \
+            --image-scanning-configuration scanOnPush=true
+          echo "✅ ECR repository ready: ${PROJECT_NAME}-${REPO}"
+        done
+    
+    - name: Store Infrastructure Details
+      if: github.event.inputs.action != 'destroy'
+      run: |
+        echo "💾 Storing Infrastructure Details"
+        echo "================================"
+        
+        # Store all infrastructure details in Parameter Store
+        aws ssm put-parameter \
+          --name /${ENV_NAME}/database/endpoint \
+          --value "${{ steps.database.outputs.endpoint }}" \
+          --type String \
+          --overwrite
+        
+        aws ssm put-parameter \
+          --name /${ENV_NAME}/alb/dns \
+          --value "${{ steps.alb.outputs.dns_name }}" \
+          --type String \
+          --overwrite
+        
+        echo "✅ Infrastructure setup complete!"
+        echo ""
+        echo "🌐 Access URLs:"
+        echo "============="
+        echo "Frontend: http://${{ steps.alb.outputs.dns_name }}"
+        echo "Backend API: http://${{ steps.alb.outputs.dns_name }}/api"
+        echo "Backend Swagger: http://${{ steps.alb.outputs.dns_name }}/api/swagger-ui/index.html"
+        echo ""
+        echo "📝 Infrastructure Details:"
+        echo "======================="
+        echo "VPC ID: ${{ steps.vpc.outputs.vpc_id }}"
+        echo "Database Endpoint: ${{ steps.database.outputs.endpoint }}"
+        echo "ALB DNS: ${{ steps.alb.outputs.dns_name }}"
+        echo ""
+        echo "🔑 Database Credentials:"
+        echo "======================"
+        echo "Username: postgres"
+        echo "Password: Stored in AWS Secrets Manager (${DB_IDENTIFIER}-password)"
+        echo "Database Name: sabpaisa_tokenization"
+    
+    - name: Cleanup Infrastructure
+      if: github.event.inputs.action == 'destroy'
+      run: |
+        echo "🗑️ Destroying Infrastructure"
+        echo "=========================="
+        
+        # Delete RDS instance
+        aws rds delete-db-instance \
+          --db-instance-identifier ${DB_IDENTIFIER} \
+          --skip-final-snapshot \
+          --delete-automated-backups 2>/dev/null || echo "Database not found"
+        
+        # Delete DB subnet group
+        aws rds delete-db-subnet-group \
+          --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group 2>/dev/null || true
+        
+        # Delete ALB
+        ALB_ARN=$(aws elbv2 describe-load-balancers \
+          --names ${ALB_NAME} \
+          --query 'LoadBalancers[0].LoadBalancerArn' \
+          --output text 2>/dev/null || echo "NOT_FOUND")
+        
+        if [ "$ALB_ARN" != "NOT_FOUND" ]; then
+          # Delete listeners first
+          LISTENER_ARNS=$(aws elbv2 describe-listeners \
+            --load-balancer-arn ${ALB_ARN} \
+            --query 'Listeners[*].ListenerArn' \
+            --output text)
+          
+          for LISTENER_ARN in ${LISTENER_ARNS}; do
+            aws elbv2 delete-listener --listener-arn ${LISTENER_ARN} 2>/dev/null || true
+          done
+          
+          # Delete target groups
+          for TG_NAME in ${ENV_NAME}-backend-tg-80 ${ENV_NAME}-frontend-tg-80; do
+            TG_ARN=$(aws elbv2 describe-target-groups \
+              --names ${TG_NAME} \
+              --query 'TargetGroups[0].TargetGroupArn' \
+              --output text 2>/dev/null || echo "NOT_FOUND")
+            
+            if [ "$TG_ARN" != "NOT_FOUND" ]; then
+              aws elbv2 delete-target-group --target-group-arn ${TG_ARN} 2>/dev/null || true
+            fi
+          done
+          
+          # Delete load balancer
+          aws elbv2 delete-load-balancer --load-balancer-arn ${ALB_ARN}
+        fi
+        
+        # Delete ECS services if they exist
+        CLUSTER_NAME="${{ env.PROJECT_NAME }}-cluster"
+        for SERVICE in backend-service-${ENV_NAME} frontend-service-${ENV_NAME}; do
+          aws ecs update-service \
+            --cluster ${CLUSTER_NAME} \
+            --service ${SERVICE} \
+            --desired-count 0 2>/dev/null || true
+          
+          aws ecs delete-service \
+            --cluster ${CLUSTER_NAME} \
+            --service ${SERVICE} \
+            --force 2>/dev/null || true
+        done
+        
+        # Note: We're not deleting the ECS cluster or VPC as they might be shared
+        
+        # Delete security groups
+        for SG_NAME in ${DB_IDENTIFIER}-sg ${ALB_NAME}-sg; do
+          SG_ID=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=${SG_NAME}" \
+            --query 'SecurityGroups[0].GroupId' \
+            --output text 2>/dev/null || echo "NOT_FOUND")
+          
+          if [ "$SG_ID" != "NOT_FOUND" ]; then
+            aws ec2 delete-security-group --group-id ${SG_ID} 2>/dev/null || true
+          fi
+        done
+        
+        # Delete parameters
+        aws ssm delete-parameter --name /${ENV_NAME}/database/endpoint 2>/dev/null || true
+        aws ssm delete-parameter --name /${ENV_NAME}/backend/target-group-arn 2>/dev/null || true
+        aws ssm delete-parameter --name /${ENV_NAME}/frontend/target-group-arn 2>/dev/null || true
+        aws ssm delete-parameter --name /${ENV_NAME}/alb/dns 2>/dev/null || true
+        aws ssm delete-parameter --name /${ENV_NAME}/vpc/id 2>/dev/null || true
+        
+        # Delete secrets
+        aws secretsmanager delete-secret \
+          --secret-id ${DB_IDENTIFIER}-password \
+          --force-delete-without-recovery 2>/dev/null || true
+        
+        echo "✅ Cleanup complete"
+        echo ""
+        echo "Note: VPC and ECS Cluster were not deleted as they might be shared resources."
+        echo "If you want to delete them, please do so manually."
