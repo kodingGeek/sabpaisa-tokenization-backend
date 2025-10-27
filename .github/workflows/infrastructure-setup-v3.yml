@@ -196,10 +196,13 @@ jobs:
           
           # Create or update DB subnet group
           echo "Setting up DB subnet group..."
-          SUBNET_GROUP_EXISTS=$(aws rds describe-db-subnet-groups \
+          SUBNET_GROUP_INFO=$(aws rds describe-db-subnet-groups \
             --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group \
-            --query 'DBSubnetGroups[0].DBSubnetGroupName' \
-            --output text 2>/dev/null || echo "NOT_FOUND")
+            --query 'DBSubnetGroups[0].[DBSubnetGroupName,VpcId]' \
+            --output text 2>/dev/null || echo "NOT_FOUND NOT_FOUND")
+          
+          SUBNET_GROUP_EXISTS=$(echo $SUBNET_GROUP_INFO | awk '{print $1}')
+          SUBNET_GROUP_VPC=$(echo $SUBNET_GROUP_INFO | awk '{print $2}')
           
           if [ "$SUBNET_GROUP_EXISTS" = "NOT_FOUND" ]; then
             echo "Creating new DB subnet group..."
@@ -207,8 +210,31 @@ jobs:
               --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group \
               --db-subnet-group-description "Subnet group for ${DB_IDENTIFIER}" \
               --subnet-ids ${SUBNETS}
+          elif [ "$SUBNET_GROUP_VPC" != "$VPC_ID" ]; then
+            echo "DB subnet group exists but is in different VPC ($SUBNET_GROUP_VPC vs $VPC_ID)"
+            echo "Deleting old subnet group and creating new one..."
+            
+            # Check if any DB instances are using this subnet group
+            DB_USING=$(aws rds describe-db-instances \
+              --query "DBInstances[?DBSubnetGroup.DBSubnetGroupName=='${DB_IDENTIFIER}-subnet-group'].DBInstanceIdentifier" \
+              --output text 2>/dev/null || echo "")
+            
+            if [ -z "$DB_USING" ]; then
+              aws rds delete-db-subnet-group \
+                --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group
+              
+              echo "Creating new DB subnet group for current VPC..."
+              aws rds create-db-subnet-group \
+                --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group \
+                --db-subnet-group-description "Subnet group for ${DB_IDENTIFIER}" \
+                --subnet-ids ${SUBNETS}
+            else
+              echo "ERROR: Cannot update subnet group - it's being used by database: $DB_USING"
+              echo "Please delete the database first or use a different subnet group name"
+              exit 1
+            fi
           else
-            echo "DB subnet group already exists. Updating with new subnets..."
+            echo "DB subnet group already exists in same VPC. Updating with new subnets..."
             aws rds modify-db-subnet-group \
               --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group \
               --db-subnet-group-description "Subnet group for ${DB_IDENTIFIER} (updated)" \
