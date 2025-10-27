@@ -86,28 +86,49 @@ jobs:
             if [ "${{ github.event.inputs.environment }}" = "prod" ] && [ "${{ github.event.inputs.create_vpc }}" = "auto" ]; then
               echo "No default VPC found. Auto mode: Looking for a suitable existing VPC..."
               
+              # List all VPCs first for debugging
+              echo "Available VPCs:"
+              aws ec2 describe-vpcs --query 'Vpcs[*].[VpcId,CidrBlock,State]' --output table
+              
               # Find VPCs with at least 2 subnets
-              SUITABLE_VPC=$(aws ec2 describe-vpcs --query 'Vpcs[?State==`available`].VpcId' --output text | while read vpc; do
-                SUBNET_COUNT=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$vpc" --query 'length(Subnets)' --output text)
+              SUITABLE_VPC=""
+              for vpc in $(aws ec2 describe-vpcs --query 'Vpcs[?State==`available`].VpcId' --output text); do
+                echo "Checking VPC: $vpc"
+                SUBNET_COUNT=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$vpc" --query 'length(Subnets)' --output text 2>/dev/null || echo "0")
+                echo "  Subnet count: $SUBNET_COUNT"
+                
                 if [ "$SUBNET_COUNT" -ge 2 ]; then
-                  echo "$vpc"
+                  SUITABLE_VPC="$vpc"
+                  echo "  ✓ VPC has sufficient subnets"
                   break
                 fi
-              done)
+              done
               
-              if [ -n "$SUITABLE_VPC" ] && [ "$SUITABLE_VPC" != "None" ]; then
+              if [ -n "$SUITABLE_VPC" ] && [ "$SUITABLE_VPC" != "" ]; then
                 echo "✅ Found suitable VPC: ${SUITABLE_VPC}"
                 VPC_ID="${SUITABLE_VPC}"
                 
                 # Show VPC details
-                VPC_NAME=$(aws ec2 describe-vpcs --vpc-ids ${VPC_ID} --query 'Vpcs[0].Tags[?Key==`Name`].Value|[0]' --output text)
+                VPC_NAME=$(aws ec2 describe-vpcs --vpc-ids ${VPC_ID} --query 'Vpcs[0].Tags[?Key==`Name`].Value|[0]' --output text 2>/dev/null || echo "No Name")
                 VPC_CIDR=$(aws ec2 describe-vpcs --vpc-ids ${VPC_ID} --query 'Vpcs[0].CidrBlock' --output text)
-                echo "VPC Name: ${VPC_NAME:-No Name Tag}"
+                echo "VPC Name: ${VPC_NAME}"
                 echo "VPC CIDR: ${VPC_CIDR}"
+                
+                # Show subnet details
+                echo "Subnets in this VPC:"
+                aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" --query 'Subnets[*].[SubnetId,AvailabilityZone,CidrBlock]' --output table
+                
                 echo "Proceeding with existing VPC..."
               else
                 echo "❌ No suitable VPC found with at least 2 subnets"
-                echo "Please create a VPC manually or delete an existing one"
+                echo ""
+                echo "VPC subnet summary:"
+                for vpc in $(aws ec2 describe-vpcs --query 'Vpcs[*].VpcId' --output text); do
+                  SUBNET_COUNT=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$vpc" --query 'length(Subnets)' --output text 2>/dev/null || echo "0")
+                  echo "  VPC $vpc has $SUBNET_COUNT subnet(s)"
+                done
+                echo ""
+                echo "Please ensure at least one VPC has 2 or more subnets, or provide a specific VPC ID"
                 exit 1
               fi
             elif [ "${{ github.event.inputs.environment }}" = "prod" ] && [ "${{ github.event.inputs.create_vpc }}" = "true" ]; then
