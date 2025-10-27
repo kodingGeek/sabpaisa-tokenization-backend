@@ -157,11 +157,30 @@ jobs:
         # Create CloudWatch log group
         aws logs create-log-group --log-group-name /ecs/$ECS_SERVICE --region $AWS_REGION 2>/dev/null || echo "Log group exists"
         
-        # Get VPC details
-        VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text)
+        # Get VPC details from parameter store or default VPC
+        VPC_ID=$(aws ssm get-parameter --name /${ENV_NAME}/vpc/id --query 'Parameter.Value' --output text 2>/dev/null || echo "NOT_FOUND")
+        
+        if [ "$VPC_ID" = "NOT_FOUND" ]; then
+          echo "VPC ID not found in parameter store, looking for default VPC..."
+          VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
+          
+          if [ "$VPC_ID" = "None" ]; then
+            echo "❌ No VPC found. Please run the infrastructure setup pipeline first."
+            exit 1
+          fi
+        fi
+        
+        echo "Using VPC: $VPC_ID"
+        
+        # Get subnets for the VPC
         SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --query 'Subnets[*].SubnetId' --output text)
         SUBNET_1=$(echo $SUBNETS | cut -d' ' -f1)
         SUBNET_2=$(echo $SUBNETS | cut -d' ' -f2)
+        
+        if [ -z "$SUBNET_1" ] || [ -z "$SUBNET_2" ]; then
+          echo "❌ Insufficient subnets in VPC. At least 2 subnets required."
+          exit 1
+        fi
         
         # Create security group for backend
         SG_NAME="backend-sg-${ENV_NAME}-${{ steps.infra.outputs.timestamp }}"
