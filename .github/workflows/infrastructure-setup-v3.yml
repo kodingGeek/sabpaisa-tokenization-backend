@@ -32,6 +32,7 @@ on:
         options:
         - 'true'
         - 'false'
+        - 'auto'  # Automatically find and reuse suitable VPC
 
 env:
   AWS_REGION: ap-south-1
@@ -82,69 +83,136 @@ jobs:
           
           if [ "$VPC_ID" = "None" ] || [ -z "$VPC_ID" ]; then
             if [ "${{ github.event.inputs.environment }}" = "prod" ] && [ "${{ github.event.inputs.create_vpc }}" = "true" ]; then
-              echo "No default VPC found. Creating new VPC for production..."
+              echo "No default VPC found. Checking VPC limits..."
               
-              # Create VPC
-              VPC_ID=$(aws ec2 create-vpc \
-                --cidr-block 10.0.0.0/16 \
-                --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-vpc}]" \
-                --query 'Vpc.VpcId' \
-                --output text)
+              # Check current VPC count
+              CURRENT_VPC_COUNT=$(aws ec2 describe-vpcs --query 'length(Vpcs)' --output text)
+              echo "Current VPC count: ${CURRENT_VPC_COUNT}"
               
-              # Enable DNS hostnames
-              aws ec2 modify-vpc-attribute --vpc-id ${VPC_ID} --enable-dns-hostnames
+              # Check VPC limit (usually 5)
+              VPC_LIMIT=$(aws service-quotas get-service-quota \
+                --service-code vpc \
+                --quota-code L-F678F1CE \
+                --query 'Quota.Value' \
+                --output text 2>/dev/null || echo "5")
+              echo "VPC limit: ${VPC_LIMIT}"
               
-              # Create Internet Gateway
-              IGW_ID=$(aws ec2 create-internet-gateway \
-                --tag-specifications "ResourceType=internet-gateway,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-igw}]" \
-                --query 'InternetGateway.InternetGatewayId' \
-                --output text)
+              if [ "${CURRENT_VPC_COUNT}" -ge "${VPC_LIMIT}" ]; then
+                echo "❌ VPC limit reached (${CURRENT_VPC_COUNT}/${VPC_LIMIT})"
+                echo ""
+                echo "Existing VPCs:"
+                aws ec2 describe-vpcs --query 'Vpcs[*].[VpcId,CidrBlock,Tags[?Key==`Name`].Value|[0]]' --output table
+                echo ""
+                echo "Options to proceed:"
+                echo "1. Delete an unused VPC and re-run the pipeline"
+                echo "2. Use an existing VPC by providing its ID in the 'vpc_id' parameter"
+                echo "3. Request a VPC limit increase from AWS Support"
+                echo ""
+                echo "Looking for existing VPC tagged for this project..."
+                EXISTING_PROJECT_VPC=$(aws ec2 describe-vpcs \
+                  --filters "Name=tag:Name,Values=${PROJECT_NAME}-*" \
+                  --query 'Vpcs[0].VpcId' \
+                  --output text 2>/dev/null || echo "None")
+                
+                if [ "$EXISTING_PROJECT_VPC" != "None" ] && [ -n "$EXISTING_PROJECT_VPC" ]; then
+                  echo "Found existing project VPC: ${EXISTING_PROJECT_VPC}"
+                  echo "You can re-run this pipeline with vpc_id=${EXISTING_PROJECT_VPC}"
+                fi
+                
+                # If create_vpc is 'auto', try to find a suitable VPC
+                if [ "${{ github.event.inputs.create_vpc }}" = "auto" ]; then
+                  echo ""
+                  echo "Auto mode: Looking for a suitable VPC with at least 2 subnets..."
+                  
+                  # Find VPCs with at least 2 subnets
+                  SUITABLE_VPC=$(aws ec2 describe-vpcs --query 'Vpcs[?State==`available`].VpcId' --output text | while read vpc; do
+                    SUBNET_COUNT=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$vpc" --query 'length(Subnets)' --output text)
+                    if [ "$SUBNET_COUNT" -ge 2 ]; then
+                      echo "$vpc"
+                      break
+                    fi
+                  done)
+                  
+                  if [ -n "$SUITABLE_VPC" ] && [ "$SUITABLE_VPC" != "None" ]; then
+                    echo "✅ Found suitable VPC: ${SUITABLE_VPC}"
+                    VPC_ID="${SUITABLE_VPC}"
+                    echo "vpc_id=${VPC_ID}" >> $GITHUB_OUTPUT
+                    echo "Proceeding with existing VPC..."
+                  else
+                    echo "❌ No suitable VPC found with at least 2 subnets"
+                    exit 1
+                  fi
+                else
+                  exit 1
+                fi
+              fi
               
-              # Attach Internet Gateway to VPC
-              aws ec2 attach-internet-gateway --vpc-id ${VPC_ID} --internet-gateway-id ${IGW_ID}
-              
-              # Create subnets in different AZs
-              AVAILABILITY_ZONES=$(aws ec2 describe-availability-zones \
-                --query 'AvailabilityZones[?State==`available`].[ZoneName]' \
-                --output text | head -3)
-              
-              SUBNET_IDS=""
-              SUBNET_INDEX=1
-              
-              for AZ in ${AVAILABILITY_ZONES}; do
-                SUBNET_ID=$(aws ec2 create-subnet \
-                  --vpc-id ${VPC_ID} \
-                  --cidr-block "10.0.${SUBNET_INDEX}.0/24" \
-                  --availability-zone ${AZ} \
-                  --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-subnet-${AZ}}]" \
-                  --query 'Subnet.SubnetId' \
+              # Only create VPC if we haven't found one and limit not reached
+              if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
+                echo "Creating new VPC for production..."
+                
+                # Create VPC
+                VPC_ID=$(aws ec2 create-vpc \
+                  --cidr-block 10.0.0.0/16 \
+                  --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-vpc}]" \
+                  --query 'Vpc.VpcId' \
                   --output text)
                 
-                SUBNET_IDS="${SUBNET_IDS} ${SUBNET_ID}"
-                SUBNET_INDEX=$((SUBNET_INDEX + 1))
-              done
-              
-              # Create route table
-              ROUTE_TABLE_ID=$(aws ec2 create-route-table \
-                --vpc-id ${VPC_ID} \
-                --tag-specifications "ResourceType=route-table,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-rt}]" \
-                --query 'RouteTable.RouteTableId' \
-                --output text)
-              
-              # Create route to Internet Gateway
-              aws ec2 create-route \
-                --route-table-id ${ROUTE_TABLE_ID} \
-                --destination-cidr-block 0.0.0.0/0 \
-                --gateway-id ${IGW_ID}
-              
-              # Associate route table with subnets
-              for SUBNET_ID in ${SUBNET_IDS}; do
-                aws ec2 associate-route-table \
-                  --subnet-id ${SUBNET_ID} \
-                  --route-table-id ${ROUTE_TABLE_ID}
-              done
-              
-              echo "✅ Created new VPC: ${VPC_ID}"
+                # Enable DNS hostnames
+                aws ec2 modify-vpc-attribute --vpc-id ${VPC_ID} --enable-dns-hostnames
+                
+                # Create Internet Gateway
+                IGW_ID=$(aws ec2 create-internet-gateway \
+                  --tag-specifications "ResourceType=internet-gateway,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-igw}]" \
+                  --query 'InternetGateway.InternetGatewayId' \
+                  --output text)
+                
+                # Attach Internet Gateway to VPC
+                aws ec2 attach-internet-gateway --vpc-id ${VPC_ID} --internet-gateway-id ${IGW_ID}
+                
+                # Create subnets in different AZs
+                AVAILABILITY_ZONES=$(aws ec2 describe-availability-zones \
+                  --query 'AvailabilityZones[?State==`available`].[ZoneName]' \
+                  --output text | head -3)
+                
+                SUBNET_IDS=""
+                SUBNET_INDEX=1
+                
+                for AZ in ${AVAILABILITY_ZONES}; do
+                  SUBNET_ID=$(aws ec2 create-subnet \
+                    --vpc-id ${VPC_ID} \
+                    --cidr-block "10.0.${SUBNET_INDEX}.0/24" \
+                    --availability-zone ${AZ} \
+                    --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-subnet-${AZ}}]" \
+                    --query 'Subnet.SubnetId' \
+                    --output text)
+                  
+                  SUBNET_IDS="${SUBNET_IDS} ${SUBNET_ID}"
+                  SUBNET_INDEX=$((SUBNET_INDEX + 1))
+                done
+                
+                # Create route table
+                ROUTE_TABLE_ID=$(aws ec2 create-route-table \
+                  --vpc-id ${VPC_ID} \
+                  --tag-specifications "ResourceType=route-table,Tags=[{Key=Name,Value=${PROJECT_NAME}-${ENV_NAME}-rt}]" \
+                  --query 'RouteTable.RouteTableId' \
+                  --output text)
+                
+                # Create route to Internet Gateway
+                aws ec2 create-route \
+                  --route-table-id ${ROUTE_TABLE_ID} \
+                  --destination-cidr-block 0.0.0.0/0 \
+                  --gateway-id ${IGW_ID}
+                
+                # Associate route table with subnets
+                for SUBNET_ID in ${SUBNET_IDS}; do
+                  aws ec2 associate-route-table \
+                    --subnet-id ${SUBNET_ID} \
+                    --route-table-id ${ROUTE_TABLE_ID}
+                done
+                
+                echo "✅ Created new VPC: ${VPC_ID}"
+              fi
             else
               echo "❌ No default VPC found and not creating new VPC."
               echo "Please provide a VPC ID or enable VPC creation for production."
