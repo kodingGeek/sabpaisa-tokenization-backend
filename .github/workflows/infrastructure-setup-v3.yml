@@ -194,17 +194,26 @@ jobs:
           # Get subnets for DB subnet group
           SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" --query 'Subnets[*].SubnetId' --output text)
           
-          # Create DB subnet group
-          echo "Creating DB subnet group..."
-          aws rds create-db-subnet-group \
+          # Create or update DB subnet group
+          echo "Setting up DB subnet group..."
+          SUBNET_GROUP_EXISTS=$(aws rds describe-db-subnet-groups \
             --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group \
-            --db-subnet-group-description "Subnet group for ${DB_IDENTIFIER}" \
-            --subnet-ids ${SUBNETS} || {
-              echo "Failed to create DB subnet group. Checking subnet availability..."
-              # List available subnets
-              aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" --query 'Subnets[*].[SubnetId,AvailabilityZone]' --output table
-              exit 1
-            }
+            --query 'DBSubnetGroups[0].DBSubnetGroupName' \
+            --output text 2>/dev/null || echo "NOT_FOUND")
+          
+          if [ "$SUBNET_GROUP_EXISTS" = "NOT_FOUND" ]; then
+            echo "Creating new DB subnet group..."
+            aws rds create-db-subnet-group \
+              --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group \
+              --db-subnet-group-description "Subnet group for ${DB_IDENTIFIER}" \
+              --subnet-ids ${SUBNETS}
+          else
+            echo "DB subnet group already exists. Updating with new subnets..."
+            aws rds modify-db-subnet-group \
+              --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group \
+              --db-subnet-group-description "Subnet group for ${DB_IDENTIFIER} (updated)" \
+              --subnet-ids ${SUBNETS}
+          fi
           
           # Create security group for RDS
           SG_ID=$(aws ec2 create-security-group \
@@ -476,12 +485,25 @@ jobs:
         echo "=========================="
         
         # Delete RDS instance
-        aws rds delete-db-instance \
+        DB_EXISTS=$(aws rds describe-db-instances \
           --db-instance-identifier ${DB_IDENTIFIER} \
-          --skip-final-snapshot \
-          --delete-automated-backups 2>/dev/null || echo "Database not found"
+          --query 'DBInstances[0].DBInstanceStatus' \
+          --output text 2>/dev/null || echo "NOT_FOUND")
         
-        # Delete DB subnet group
+        if [ "$DB_EXISTS" != "NOT_FOUND" ]; then
+          echo "Deleting RDS instance..."
+          aws rds delete-db-instance \
+            --db-instance-identifier ${DB_IDENTIFIER} \
+            --skip-final-snapshot \
+            --delete-automated-backups
+          
+          echo "Waiting for database deletion..."
+          aws rds wait db-instance-deleted \
+            --db-instance-identifier ${DB_IDENTIFIER} || true
+        fi
+        
+        # Delete DB subnet group (only after DB is deleted)
+        echo "Deleting DB subnet group..."
         aws rds delete-db-subnet-group \
           --db-subnet-group-name ${DB_IDENTIFIER}-subnet-group 2>/dev/null || true
         
