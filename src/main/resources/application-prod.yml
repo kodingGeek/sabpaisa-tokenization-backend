@@ -157,7 +157,7 @@ app:
   # SMS configuration
   sms:
     provider: ${SMS_PROVIDER:aws-sns}
-    api-key: ${SMS_API_KEY}
+    api-key: ${SMS_API_KEY:dummy-sms-key-prod}
     sender-id: ${SMS_SENDER_ID:SBPAIS}
     region: ${AWS_REGION:ap-south-1}
   

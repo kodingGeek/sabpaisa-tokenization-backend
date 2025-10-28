@@ -13,7 +13,7 @@ public class SmsService {
     @Value("${app.sms.provider:mock}")
     private String smsProvider;
     
-    @Value("${app.sms.api-key}")
+    @Value("${app.sms.api-key:}")
     private String apiKey;
     
     @Value("${app.sms.sender-id:SBPAIS}")
