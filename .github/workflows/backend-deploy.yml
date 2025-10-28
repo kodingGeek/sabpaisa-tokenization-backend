@@ -146,86 +146,16 @@ jobs:
         sudo cp "/tmp/$WAR_NAME" "$WEBAPPS_DIR/$APP_NAME.war"
         sudo chown tomcat:tomcat "$WEBAPPS_DIR/$APP_NAME.war"
         
-        # Update application properties
-        echo "Updating application configuration..."
-        sudo mkdir -p /opt/tomcat/conf
-        cat > /tmp/application.yml << EOL
-        spring:
-          application:
-            name: tokenization-service
-          datasource:
-            url: jdbc:postgresql://$DB_HOST:5432/$DB_NAME
-            username: $DB_USER
-            password: \${DATABASE_PASSWORD}
-            driver-class-name: org.postgresql.Driver
-          jpa:
-            hibernate:
-              ddl-auto: validate
-            properties:
-              hibernate:
-                dialect: org.hibernate.dialect.PostgreSQLDialect
-                format_sql: true
-            show-sql: false
-          redis:
-            host: localhost
-            port: 6379
-            timeout: 10s
-          security:
-            jwt:
-              secret-key: $JWT_SECRET
-              expiration: 86400000
-        
-        server:
-          port: 8080
-          servlet:
-            context-path: /$APP_NAME
-          error:
-            include-message: always
-            include-binding-errors: always
-        
-        springdoc:
-          api-docs:
-            path: /v3/api-docs
-          swagger-ui:
-            path: /swagger-ui.html
-            enabled: true
-        
-        logging:
-          level:
-            com.sabpaisa.tokenization: INFO
-            org.springframework.web: WARN
-            org.hibernate: WARN
-          file:
-            name: /opt/tomcat/logs/$APP_NAME.log
-        
-        # Application specific properties
-        app:
-          encryption:
-            enabled: true
-            exclude-paths: /health,/actuator/**,/swagger-ui/**,/v3/api-docs/**
-          notification:
-            enabled: true
-            from-email: noreply@sabpaisa.com
-          sms:
-            provider: mock
-            sender-id: SBPAIS
-          monetization:
-            enabled: true
-            free-tier-tokens: 1000
-          scheduling:
-            enabled: true
-        EOL
-        
-        sudo mv /tmp/application.yml /opt/tomcat/conf/application.yml
-        sudo chown tomcat:tomcat /opt/tomcat/conf/application.yml
+        # Application will use embedded production profile configuration
         
         # Set database password from Secrets Manager
         DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id sabpaisa-tokenization-${{ github.event.inputs.environment }}-db-config --query SecretString --output text | jq -r .password)
         
-        # Update Tomcat environment with database password
+        # Update Tomcat environment with database password and production profile
         sudo mkdir -p /opt/tomcat/bin
-        echo "export DATABASE_PASSWORD=\"$DB_PASSWORD\"" | sudo tee /opt/tomcat/bin/setenv.sh
-        echo "export SPRING_CONFIG_LOCATION=\"/opt/tomcat/conf/application.yml\"" | sudo tee -a /opt/tomcat/bin/setenv.sh
+        echo "export SPRING_PROFILES_ACTIVE=prod" | sudo tee /opt/tomcat/bin/setenv.sh
+        echo "export DATABASE_PASSWORD=\"$DB_PASSWORD\"" | sudo tee -a /opt/tomcat/bin/setenv.sh
+        echo "export JAVA_OPTS=\"\$JAVA_OPTS -Dspring.profiles.active=prod\"" | sudo tee -a /opt/tomcat/bin/setenv.sh
         sudo chmod +x /opt/tomcat/bin/setenv.sh
         sudo chown tomcat:tomcat /opt/tomcat/bin/setenv.sh
         

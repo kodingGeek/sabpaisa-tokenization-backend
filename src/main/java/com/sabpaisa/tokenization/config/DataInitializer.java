@@ -1,6 +1,6 @@
 package com.sabpaisa.tokenization.config;
 
-import com.sabpaisa.tokenization.domain.entity.Merchant;
+import com.sabpaisa.tokenization.entity.Merchant;
 import com.sabpaisa.tokenization.repository.MerchantRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;

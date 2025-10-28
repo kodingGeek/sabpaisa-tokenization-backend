@@ -1,0 +1,152 @@
+name: Deploy Backend to ECS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+        - prod
+      image_tag:
+        description: 'Docker Image Tag'
+        required: false
+        default: 'latest'
+        type: string
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: sabpaisa-tokenization-backend
+  ECS_CLUSTER: sabpaisa-tokenization-cluster
+  ECS_SERVICE: sabpaisa-tokenization-backend
+  CONTAINER_NAME: backend
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      
+    - name: Get repository URI
+      id: ecr-uri
+      run: |
+        REPOSITORY_URI=$(aws ecr describe-repositories --repository-names $ECR_REPOSITORY --query 'repositories[0].repositoryUri' --output text)
+        echo "repository_uri=$REPOSITORY_URI" >> $GITHUB_OUTPUT
+        
+    - name: Build Docker image
+      id: build-image
+      run: |
+        IMAGE_TAG=${{ github.event.inputs.image_tag }}
+        if [ "$IMAGE_TAG" = "latest" ]; then
+          IMAGE_TAG="${GITHUB_SHA:0:8}"
+        fi
+        
+        IMAGE_URI="${{ steps.ecr-uri.outputs.repository_uri }}:$IMAGE_TAG"
+        
+        echo "Building Docker image..."
+        docker build -t $IMAGE_URI .
+        
+        echo "Pushing Docker image to ECR..."
+        docker push $IMAGE_URI
+        
+        echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+        echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        
+    - name: Download ECS task definition template
+      id: download-task-def
+      run: |
+        # Get the current task definition
+        TASK_DEFINITION=$(aws ecs describe-task-definition \
+          --task-definition $ECS_SERVICE \
+          --query 'taskDefinition' \
+          --output json | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)')
+        
+        # Update the image URI in task definition
+        TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE_URI "${{ steps.build-image.outputs.image_uri }}" \
+          '.containerDefinitions[0].image = $IMAGE_URI')
+        
+        echo "$TASK_DEFINITION" > task-definition.json
+        cat task-definition.json
+        
+    - name: Deploy to Amazon ECS
+      id: deploy-ecs
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+      with:
+        task-definition: task-definition.json
+        service: ${{ env.ECS_SERVICE }}
+        cluster: ${{ env.ECS_CLUSTER }}
+        wait-for-service-stability: true
+        wait-for-minutes: 10
+        
+    - name: Verify deployment
+      run: |
+        echo "Deployment completed successfully!"
+        
+        # Get service details
+        SERVICE_INFO=$(aws ecs describe-services \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE \
+          --query 'services[0]')
+        
+        DESIRED_COUNT=$(echo $SERVICE_INFO | jq '.desiredCount')
+        RUNNING_COUNT=$(echo $SERVICE_INFO | jq '.runningCount')
+        PENDING_COUNT=$(echo $SERVICE_INFO | jq '.pendingCount')
+        
+        echo "Service Status:"
+        echo "- Desired tasks: $DESIRED_COUNT"
+        echo "- Running tasks: $RUNNING_COUNT"
+        echo "- Pending tasks: $PENDING_COUNT"
+        
+        # Get load balancer DNS
+        ALB_DNS=$(aws elbv2 describe-load-balancers \
+          --names sabpaisa-tokenization-alb \
+          --query 'LoadBalancers[0].DNSName' \
+          --output text)
+        
+        echo "Application URL: http://$ALB_DNS/tokenization-backend"
+        echo "Health Check URL: http://$ALB_DNS/tokenization-backend/actuator/health"
+        
+        # Verify health check
+        echo "Waiting for health check..."
+        sleep 30
+        
+        if curl -f -s "http://$ALB_DNS/tokenization-backend/actuator/health" > /dev/null; then
+          echo "✅ Application is healthy!"
+        else
+          echo "⚠️ Health check failed - application may still be starting"
+        fi
+        
+    - name: Cleanup
+      if: always()
+      run: |
+        # Clean up task definition file
+        rm -f task-definition.json
+        
+        # Keep only last 5 images in ECR
+        aws ecr list-images --repository-name $ECR_REPOSITORY \
+          --filter tagStatus=TAGGED \
+          --query 'imageIds[?type(imageTag) == `string`].[imageTag]' \
+          --output text | sort -V | head -n -5 | while read tag; do
+          if [ ! -z "$tag" ] && [ "$tag" != "latest" ]; then
+            echo "Cleaning up old image: $tag"
+            aws ecr batch-delete-image --repository-name $ECR_REPOSITORY --image-ids imageTag=$tag || true
+          fi
+        done

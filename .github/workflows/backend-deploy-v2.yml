@@ -1,0 +1,400 @@
+name: Deploy Backend V2
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - stage
+        - prod
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: sabpaisa-tokenization-backend
+  ECS_CLUSTER: sabpaisa-tokenization-cluster
+  CONTAINER_NAME: backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Set environment variables
+      run: |
+        echo "ENV_NAME=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+        echo "ECS_SERVICE=backend-service-${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+        echo "TASK_FAMILY=backend-task-${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+        
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      
+    - name: Phase 1 - Fetch Infrastructure Details
+      id: infra
+      run: |
+        echo "🔍 Phase 1: Fetching Infrastructure Details"
+        echo "=========================================="
+        
+        # Get database details
+        DB_ENDPOINT=$(aws ssm get-parameter \
+          --name /${ENV_NAME}/database/endpoint \
+          --query 'Parameter.Value' \
+          --output text)
+        
+        if [[ -z "$DB_ENDPOINT" ]]; then
+          echo "❌ Database endpoint not found. Please run infrastructure setup first."
+          exit 1
+        fi
+        
+        # Get database password from Secrets Manager
+        DB_PASSWORD=$(aws secretsmanager get-secret-value \
+          --secret-id sabpaisa-tokenization-${ENV_NAME}-password \
+          --query 'SecretString' \
+          --output text)
+        
+        # Get target group ARN
+        TARGET_GROUP_ARN=$(aws ssm get-parameter \
+          --name /${ENV_NAME}/backend/target-group-arn \
+          --query 'Parameter.Value' \
+          --output text)
+        
+        # Get ALB DNS
+        ALB_DNS=$(aws ssm get-parameter \
+          --name /${ENV_NAME}/alb/dns \
+          --query 'Parameter.Value' \
+          --output text)
+        
+        # Get other details
+        TIMESTAMP=$(date +%Y%m%d%H%M%S)
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        
+        # Ensure ECR repository exists
+        aws ecr describe-repositories --repository-names $ECR_REPOSITORY 2>/dev/null || \
+        aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true
+        
+        REPOSITORY_URI=$(aws ecr describe-repositories --repository-names $ECR_REPOSITORY --query 'repositories[0].repositoryUri' --output text)
+        
+        echo "db_endpoint=$DB_ENDPOINT" >> $GITHUB_OUTPUT
+        echo "db_password=$DB_PASSWORD" >> $GITHUB_OUTPUT
+        echo "target_group_arn=$TARGET_GROUP_ARN" >> $GITHUB_OUTPUT
+        echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
+        echo "repository_uri=$REPOSITORY_URI" >> $GITHUB_OUTPUT
+        echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+        echo "account_id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
+        
+        echo "✅ Infrastructure details retrieved"
+        echo "Database: $DB_ENDPOINT"
+        echo "Target Group: $TARGET_GROUP_ARN"
+        
+    - name: Phase 2 - Test Database Connection
+      run: |
+        echo "🔌 Phase 2: Testing Database Connection"
+        echo "======================================"
+        
+        # Install PostgreSQL client
+        sudo apt-get update && sudo apt-get install -y postgresql-client
+        
+        # Test connection
+        DB_HOST=$(echo "${{ steps.infra.outputs.db_endpoint }}" | cut -d: -f1)
+        export PGPASSWORD="${{ steps.infra.outputs.db_password }}"
+        
+        if psql -h $DB_HOST -U postgres -d postgres -c "SELECT 1" > /dev/null 2>&1; then
+          echo "✅ Database connection successful"
+          
+          # Create database if it doesn't exist
+          psql -h $DB_HOST -U postgres -d postgres -c "CREATE DATABASE sabpaisa_tokenization" 2>/dev/null || echo "Database already exists"
+        else
+          echo "❌ Failed to connect to database"
+          exit 1
+        fi
+        
+    - name: Phase 3 - Build and Push Docker Image
+      id: docker
+      run: |
+        echo "🐳 Phase 3: Building and Pushing Docker Image"
+        echo "==========================================="
+        
+        IMAGE_TAG="${{ steps.infra.outputs.timestamp }}"
+        IMAGE_URI="${{ steps.infra.outputs.repository_uri }}:$IMAGE_TAG"
+        
+        echo "Building backend image: $IMAGE_URI"
+        
+        # Build with build args for environment
+        docker build \
+          --build-arg SPRING_PROFILES_ACTIVE=$ENV_NAME \
+          -t $IMAGE_URI .
+        
+        echo "Pushing image to ECR..."
+        docker push $IMAGE_URI
+        docker tag $IMAGE_URI ${{ steps.infra.outputs.repository_uri }}:latest
+        docker push ${{ steps.infra.outputs.repository_uri }}:latest
+        
+        echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+        echo "✅ Docker image built and pushed successfully"
+        
+    - name: Phase 4 - Create ECS Resources
+      id: ecs
+      run: |
+        echo "📦 Phase 4: Creating ECS Resources"
+        echo "================================="
+        
+        # Create CloudWatch log group
+        aws logs create-log-group --log-group-name /ecs/$ECS_SERVICE --region $AWS_REGION 2>/dev/null || echo "Log group exists"
+        
+        # Get VPC details from parameter store or default VPC
+        VPC_ID=$(aws ssm get-parameter --name /${ENV_NAME}/vpc/id --query 'Parameter.Value' --output text 2>/dev/null || echo "NOT_FOUND")
+        
+        if [ "$VPC_ID" = "NOT_FOUND" ]; then
+          echo "VPC ID not found in parameter store, looking for default VPC..."
+          VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
+          
+          if [ "$VPC_ID" = "None" ]; then
+            echo "❌ No VPC found. Please run the infrastructure setup pipeline first."
+            exit 1
+          fi
+        fi
+        
+        echo "Using VPC: $VPC_ID"
+        
+        # Get subnets for the VPC
+        SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --query 'Subnets[*].SubnetId' --output text)
+        SUBNET_1=$(echo $SUBNETS | cut -d' ' -f1)
+        SUBNET_2=$(echo $SUBNETS | cut -d' ' -f2)
+        
+        if [ -z "$SUBNET_1" ] || [ -z "$SUBNET_2" ]; then
+          echo "❌ Insufficient subnets in VPC. At least 2 subnets required."
+          exit 1
+        fi
+        
+        # Create security group for backend
+        SG_NAME="backend-sg-${ENV_NAME}-${{ steps.infra.outputs.timestamp }}"
+        SG_ID=$(aws ec2 create-security-group \
+          --group-name $SG_NAME \
+          --description "Backend security group for $ENV_NAME" \
+          --vpc-id $VPC_ID \
+          --query 'GroupId' \
+          --output text)
+        
+        # Allow traffic from ALB and database access
+        aws ec2 authorize-security-group-ingress \
+          --group-id $SG_ID \
+          --protocol tcp \
+          --port 8082 \
+          --cidr 0.0.0.0/0
+        
+        aws ec2 authorize-security-group-ingress \
+          --group-id $SG_ID \
+          --protocol tcp \
+          --port 5432 \
+          --cidr 0.0.0.0/0
+        
+        echo "security_group=$SG_ID" >> $GITHUB_OUTPUT
+        echo "subnet_1=$SUBNET_1" >> $GITHUB_OUTPUT
+        echo "subnet_2=$SUBNET_2" >> $GITHUB_OUTPUT
+        echo "✅ ECS resources created"
+        
+    - name: Phase 5 - Deploy ECS Service
+      run: |
+        echo "🚀 Phase 5: Deploying Backend ECS Service"
+        echo "========================================"
+        
+        # Create task definition with database configuration
+        cat > /tmp/task-definition.json <<EOF
+        {
+          "family": "$TASK_FAMILY",
+          "networkMode": "awsvpc",
+          "requiresCompatibilities": ["FARGATE"],
+          "cpu": "1024",
+          "memory": "2048",
+          "executionRoleArn": "arn:aws:iam::${{ steps.infra.outputs.account_id }}:role/ecsTaskExecutionRole",
+          "taskRoleArn": "arn:aws:iam::${{ steps.infra.outputs.account_id }}:role/ecsTaskExecutionRole",
+          "containerDefinitions": [
+            {
+              "name": "$CONTAINER_NAME",
+              "image": "${{ steps.docker.outputs.image_uri }}",
+              "portMappings": [{
+                "containerPort": 8082,
+                "protocol": "tcp"
+              }],
+              "essential": true,
+              "environment": [
+                {
+                  "name": "SPRING_PROFILES_ACTIVE",
+                  "value": "$ENV_NAME"
+                },
+                {
+                  "name": "SERVER_PORT",
+                  "value": "8082"
+                },
+                {
+                  "name": "SERVER_SERVLET_CONTEXT_PATH",
+                  "value": "/api"
+                },
+                {
+                  "name": "SPRING_DATASOURCE_URL",
+                  "value": "jdbc:postgresql://${{ steps.infra.outputs.db_endpoint }}/sabpaisa_tokenization"
+                },
+                {
+                  "name": "SPRING_DATASOURCE_USERNAME",
+                  "value": "postgres"
+                },
+                {
+                  "name": "SPRING_DATASOURCE_PASSWORD",
+                  "value": "${{ steps.infra.outputs.db_password }}"
+                },
+                {
+                  "name": "SPRING_JPA_HIBERNATE_DDL_AUTO",
+                  "value": "update"
+                },
+                {
+                  "name": "SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT",
+                  "value": "org.hibernate.dialect.PostgreSQLDialect"
+                },
+                {
+                  "name": "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE",
+                  "value": "health,info,metrics"
+                },
+                {
+                  "name": "API_BASE_URL",
+                  "value": "http://${{ steps.infra.outputs.alb_dns }}/api"
+                },
+                {
+                  "name": "ALB_DNS",
+                  "value": "${{ steps.infra.outputs.alb_dns }}"
+                },
+                {
+                  "name": "ENCRYPTION_MASTER_KEY",
+                  "value": "${{ secrets.ENCRYPTION_MASTER_KEY || 'JSkxTjC7p8YhQ2HvWlFqZlK8mVjN9XrBcDfGhJkMnPqTsUvWxYz' }}"
+                },
+                {
+                  "name": "JWT_SECRET_KEY",
+                  "value": "${{ secrets.JWT_SECRET_KEY || '635266556A586E3272357538782F413F4428472B4B6250645367566B5970' }}"
+                },
+                {
+                  "name": "REDIS_HOST",
+                  "value": "redis-not-configured-yet"
+                },
+                {
+                  "name": "REDIS_PORT",
+                  "value": "6379"
+                }
+              ],
+              "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                  "awslogs-group": "/ecs/$ECS_SERVICE",
+                  "awslogs-region": "$AWS_REGION",
+                  "awslogs-stream-prefix": "ecs"
+                }
+              },
+              "healthCheck": {
+                "command": ["CMD-SHELL", "curl -f http://localhost:8082/api/actuator/health || exit 1"],
+                "interval": 60,
+                "timeout": 30,
+                "retries": 10,
+                "startPeriod": 180
+              }
+            }
+          ]
+        }
+        EOF
+        
+        # Register task definition
+        aws ecs register-task-definition --cli-input-json file:///tmp/task-definition.json
+        
+        # Check if service exists
+        SERVICE_EXISTS=$(aws ecs describe-services \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE \
+          --query 'services[0].status' \
+          --output text 2>/dev/null || echo "NOT_FOUND")
+        
+        NETWORK_CONFIG="{
+          \"awsvpcConfiguration\": {
+            \"subnets\": [\"${{ steps.ecs.outputs.subnet_1 }}\", \"${{ steps.ecs.outputs.subnet_2 }}\"],
+            \"securityGroups\": [\"${{ steps.ecs.outputs.security_group }}\"],
+            \"assignPublicIp\": \"ENABLED\"
+          }
+        }"
+        
+        if [ "$SERVICE_EXISTS" = "NOT_FOUND" ] || [ "$SERVICE_EXISTS" = "None" ]; then
+          echo "Creating new service..."
+          # Create new service with target group
+          aws ecs create-service \
+            --cluster $ECS_CLUSTER \
+            --service-name $ECS_SERVICE \
+            --task-definition $TASK_FAMILY \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --network-configuration "$NETWORK_CONFIG" \
+            --load-balancers "targetGroupArn=${{ steps.infra.outputs.target_group_arn }},containerName=$CONTAINER_NAME,containerPort=8082"
+        else
+          echo "Updating existing service..."
+          # Update existing service
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --task-definition $TASK_FAMILY \
+            --force-new-deployment \
+            --network-configuration "$NETWORK_CONFIG"
+        fi
+        
+        echo "✅ Backend service deployed"
+        
+        # Wait for service to stabilize
+        echo "Waiting for service to stabilize..."
+        aws ecs wait services-stable \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE \
+          --region $AWS_REGION || true
+          
+    - name: Phase 6 - Deployment Summary
+      if: always()
+      run: |
+        echo "📊 Backend Deployment Summary"
+        echo "============================"
+        echo "Environment: ${{ github.event.inputs.environment }}"
+        echo "Docker Image: ${{ steps.docker.outputs.image_uri || 'Not built' }}"
+        echo "ECS Service: $ECS_SERVICE"
+        echo "Database: ${{ steps.infra.outputs.db_endpoint }}"
+        echo ""
+        
+        # Get service details
+        SERVICE_STATUS=$(aws ecs describe-services \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE \
+          --query 'services[0].{status:status,runningCount:runningCount,desiredCount:desiredCount}' \
+          --output json 2>/dev/null || echo "{}")
+        
+        echo "Service Status:"
+        echo "$SERVICE_STATUS" | jq .
+        
+        echo ""
+        echo "🌐 Access URLs:"
+        echo "=============="
+        echo "Backend URL: http://${{ steps.infra.outputs.alb_dns }}/api"
+        echo "Swagger UI: http://${{ steps.infra.outputs.alb_dns }}/api/swagger-ui.html"
+        echo "Health Check: http://${{ steps.infra.outputs.alb_dns }}/api/actuator/health"
+        echo ""
+        echo "📋 AWS Console Links:"
+        echo "===================="
+        echo "ECS Service: https://console.aws.amazon.com/ecs/home?region=$AWS_REGION#/clusters/$ECS_CLUSTER/services/$ECS_SERVICE/tasks"
+        echo "CloudWatch Logs: https://console.aws.amazon.com/cloudwatch/home?region=$AWS_REGION#logStream:group=/ecs/$ECS_SERVICE"
+        echo ""
+        echo "📝 Note: The backend is accessible via the ALB at the fixed URL shown above."

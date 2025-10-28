@@ -1,0 +1,252 @@
+# Production Environment Configuration
+# All sensitive values should be provided through environment variables or AWS Secrets Manager
+
+spring:
+  config:
+    activate:
+      on-profile: prod
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+      
+  datasource:
+    # Production database configuration from environment variables
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://prod-db-endpoint:5432/sabpaisa_tokenization}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 30000
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-test-query: SELECT 1
+    
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate # Use validate in production for safety
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        jdbc:
+          batch_size: 25
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
+        connection:
+          provider_disables_autocommit: false # Changed to false to fix autocommit issue
+    show-sql: false
+    
+  redis:
+    host: ${REDIS_HOST:prod-redis-endpoint}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    timeout: 5s
+    lettuce:
+      pool:
+        max-active: 10
+        max-idle: 8
+        min-idle: 2
+        max-wait: -1ms
+    
+  cache:
+    type: redis
+    redis:
+      time-to-live: 3600000 # 1 hour
+      cache-null-values: false
+      enable-statistics: true
+    
+  security:
+    jwt:
+      # Production JWT secret from environment variable or AWS Secrets Manager
+      secret-key: ${JWT_SECRET_KEY:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+      expiration: ${JWT_EXPIRATION:3600000} # 1 hour default, configurable
+      
+  mail:
+    host: ${MAIL_HOST:email-smtp.us-east-1.amazonaws.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          ssl:
+            trust: ${MAIL_HOST:email-smtp.us-east-1.amazonaws.com}
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
+server:
+  port: ${SERVER_PORT:8082}
+  servlet:
+    context-path: ${SERVER_SERVLET_CONTEXT_PATH:/api}
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never # Never expose stack traces in production
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+  http2:
+    enabled: true
+  forward-headers-strategy: native # For AWS ALB
+  shutdown: graceful # Allow graceful shutdown for health checks
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: ${SWAGGER_ENABLED:true} # Enabled for production
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: ${SWAGGER_ENABLED:true}
+    
+logging:
+  level:
+    root: WARN
+    com.sabpaisa.tokenization: INFO
+    org.springframework.web: WARN
+    org.springframework.security: WARN
+    org.hibernate: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: /var/log/sabpaisa/tokenization-service.log
+    max-size: 10MB
+    max-history: 30
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  health:
+    redis:
+      enabled: true
+    db:
+      enabled: true
+
+# Application specific properties
+app:
+  # Encryption configuration
+  encryption:
+    enabled: true
+    master-key: ${ENCRYPTION_MASTER_KEY:dGVzdGVuY3J5cHRpb25rZXlmb3Jwcm9kdWN0aW9uMTIzNDU2Nzg5MGFiY2RlZg==}
+    algorithm: AES/GCM/NoPadding
+    key-rotation-days: 90
+    exclude-paths: /actuator/**,/v3/api-docs/**
+  
+  # Notification configuration
+  notification:
+    enabled: true
+    from-email: ${NOTIFICATION_FROM_EMAIL:noreply@sabpaisa.com}
+    reply-to-email: ${NOTIFICATION_REPLY_TO:support@sabpaisa.com}
+    async: true
+    retry-attempts: 3
+  
+  # SMS configuration
+  sms:
+    provider: ${SMS_PROVIDER:aws-sns}
+    api-key: ${SMS_API_KEY:dummy-sms-key-prod}
+    sender-id: ${SMS_SENDER_ID:SBPAIS}
+    region: ${AWS_REGION:ap-south-1}
+  
+  # Monetization configuration
+  monetization:
+    enabled: true
+    free-tier-tokens: ${FREE_TIER_TOKENS:1000}
+    rate-limit-per-minute: 100
+    rate-limit-per-hour: 1000
+  
+  # Scheduled tasks
+  scheduling:
+    enabled: true
+    thread-pool-size: 5
+    
+  # Security configuration
+  security:
+    rate-limiting:
+      enabled: true
+      requests-per-minute: 60
+      requests-per-hour: 1000
+    ip-whitelist:
+      enabled: ${IP_WHITELIST_ENABLED:false}
+      allowed-ips: ${ALLOWED_IPS:}
+    
+  # AWS configuration
+  aws:
+    region: ${AWS_REGION:ap-south-1}
+    s3:
+      bucket: ${S3_BUCKET:sabpaisa-tokenization-prod}
+    kms:
+      key-id: ${KMS_KEY_ID}
+    
+  # CORS configuration for production
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:https://tokenization.sabpaisa.com}
+    allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+    allowed-headers: "*"
+    allow-credentials: true
+    max-age: 3600
+
+# Feature flags for production
+feature:
+  biometric:
+    enabled: ${FEATURE_BIOMETRIC_ENABLED:true}
+  enterprise:
+    enabled: ${FEATURE_ENTERPRISE_ENABLED:true}
+  bulk-tokenization:
+    enabled: ${FEATURE_BULK_TOKENIZATION_ENABLED:true}
+    max-batch-size: 1000
+  fraud-detection:
+    enabled: ${FEATURE_FRAUD_DETECTION_ENABLED:true}
+    threshold: 0.8
+  quantum-encryption:
+    enabled: ${FEATURE_QUANTUM_ENCRYPTION_ENABLED:false}
+  multi-cloud:
+    enabled: ${FEATURE_MULTI_CLOUD_ENABLED:true}
+    
+# Resilience configuration
+resilience4j:
+  circuitbreaker:
+    instances:
+      payment-service:
+        sliding-window-size: 100
+        permitted-number-of-calls-in-half-open-state: 10
+        wait-duration-in-open-state: 60s
+        failure-rate-threshold: 50
+        event-consumer-buffer-size: 10
+  retry:
+    instances:
+      payment-service:
+        max-attempts: 3
+        wait-duration: 1s
+        retry-exceptions:
+          - java.io.IOException
+          - java.net.SocketTimeoutException
+  ratelimiter:
+    instances:
+      api:
+        limit-for-period: 1000
+        limit-refresh-period: 1m
+        timeout-duration: 0s

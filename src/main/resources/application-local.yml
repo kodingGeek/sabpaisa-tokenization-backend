@@ -1,8 +1,6 @@
 spring:
   application:
     name: tokenization-service
-  profiles:
-    active: local
     
   datasource:
     url: jdbc:h2:mem:testdb
@@ -54,31 +52,21 @@ logging:
     com.sabpaisa.tokenization: DEBUG
     org.springframework.web: INFO
     org.hibernate: INFO
+    root: INFO
 
 # Application specific properties
 app:
-  # Encryption configuration
   encryption:
     enabled: true
-    master-key: # Generate with AesGcmEncryptionService.generateNewKey()
     exclude-paths: /health,/actuator/**,/swagger-ui/**,/v3/api-docs/**
-  
-  # Notification configuration
   notification:
     enabled: true
     from-email: noreply@sabpaisa.com
-  
-  # SMS configuration
   sms:
-    provider: mock # Options: mock, twilio, aws-sns, textlocal
-    api-key: ${SMS_API_KEY:}
+    provider: mock
     sender-id: SBPAIS
-  
-  # Monetization configuration
   monetization:
     enabled: true
     free-tier-tokens: 1000
-  
-  # Scheduled tasks
   scheduling:
     enabled: true
