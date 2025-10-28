@@ -5,6 +5,8 @@ spring:
   config:
     activate:
       on-profile: prod
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
       
   datasource:
     # Production database configuration from environment variables
@@ -23,7 +25,7 @@ spring:
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: update # Changed to update for production initialization
+      ddl-auto: validate # Use validate in production for safety
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
@@ -94,14 +96,15 @@ server:
   http2:
     enabled: true
   forward-headers-strategy: native # For AWS ALB
+  shutdown: graceful # Allow graceful shutdown for health checks
 
 springdoc:
   api-docs:
     path: /v3/api-docs
-    enabled: ${SWAGGER_ENABLED:false} # Disabled by default in production
+    enabled: ${SWAGGER_ENABLED:true} # Enabled for production
   swagger-ui:
     path: /swagger-ui.html
-    enabled: ${SWAGGER_ENABLED:false}
+    enabled: ${SWAGGER_ENABLED:true}
     
 logging:
   level:
@@ -125,7 +128,14 @@ management:
       base-path: /actuator
   endpoint:
     health:
-      show-details: when-authorized
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
   metrics:
     export:
       prometheus:

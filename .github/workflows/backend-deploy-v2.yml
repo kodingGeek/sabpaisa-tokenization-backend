@@ -220,8 +220,8 @@ jobs:
           "family": "$TASK_FAMILY",
           "networkMode": "awsvpc",
           "requiresCompatibilities": ["FARGATE"],
-          "cpu": "512",
-          "memory": "1024",
+          "cpu": "1024",
+          "memory": "2048",
           "executionRoleArn": "arn:aws:iam::${{ steps.infra.outputs.account_id }}:role/ecsTaskExecutionRole",
           "taskRoleArn": "arn:aws:iam::${{ steps.infra.outputs.account_id }}:role/ecsTaskExecutionRole",
           "containerDefinitions": [
@@ -304,11 +304,11 @@ jobs:
                 }
               },
               "healthCheck": {
-                "command": ["CMD-SHELL", "curl -f http://localhost:8082/actuator/health || exit 1"],
-                "interval": 30,
-                "timeout": 10,
-                "retries": 3,
-                "startPeriod": 60
+                "command": ["CMD-SHELL", "curl -f http://localhost:8082/api/actuator/health || exit 1"],
+                "interval": 60,
+                "timeout": 30,
+                "retries": 10,
+                "startPeriod": 180
               }
             }
           ]

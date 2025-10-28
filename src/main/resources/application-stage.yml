@@ -89,7 +89,8 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
     enabled: true
-    config-url: /v3/api-docs/swagger-config
+    config-url: /api/v3/api-docs/swagger-config
+    url: /api/v3/api-docs
     try-it-out-enabled: true
     
 logging:
