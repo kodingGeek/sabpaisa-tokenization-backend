@@ -59,7 +59,7 @@ spring:
   security:
     jwt:
       # Production JWT secret from environment variable or AWS Secrets Manager
-      secret-key: ${JWT_SECRET_KEY}
+      secret-key: ${JWT_SECRET_KEY:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
       expiration: ${JWT_EXPIRATION:3600000} # 1 hour default, configurable
       
   mail:
@@ -141,7 +141,7 @@ app:
   # Encryption configuration
   encryption:
     enabled: true
-    master-key: ${ENCRYPTION_MASTER_KEY}
+    master-key: ${ENCRYPTION_MASTER_KEY:dGVzdGVuY3J5cHRpb25rZXlmb3Jwcm9kdWN0aW9uMTIzNDU2Nzg5MGFiY2RlZg==}
     algorithm: AES/GCM/NoPadding
     key-rotation-days: 90
     exclude-paths: /actuator/**,/v3/api-docs/**
