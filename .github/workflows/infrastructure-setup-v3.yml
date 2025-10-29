@@ -485,8 +485,8 @@ jobs:
             --health-check-path / \
             --health-check-interval-seconds 300 \
             --health-check-timeout-seconds 120 \
-            --healthy-threshold-count 1 \
-            --unhealthy-threshold-count 100 \
+            --healthy-threshold-count 2 \
+            --unhealthy-threshold-count 10 \
             --query 'TargetGroups[0].TargetGroupArn' \
             --output text)
           
