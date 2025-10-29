@@ -377,10 +377,10 @@ jobs:
               },
               "healthCheck": {
                 "command": ["CMD-SHELL", "echo 'healthy' || exit 0"],
-                "interval": 600,
+                "interval": 300,
                 "timeout": 30,
-                "retries": 1000,
-                "startPeriod": 1200
+                "retries": 100,
+                "startPeriod": 600
               }
             }
           ]
