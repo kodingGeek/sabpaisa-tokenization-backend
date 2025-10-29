@@ -5,8 +5,6 @@ spring:
   config:
     activate:
       on-profile: prod
-  lifecycle:
-    timeout-per-shutdown-phase: 30s
       
   datasource:
     # Production database configuration from environment variables
@@ -15,9 +13,9 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
-      connection-timeout: 30000
-      maximum-pool-size: 20
-      minimum-idle: 5
+      connection-timeout: 20000
+      maximum-pool-size: 10
+      minimum-idle: 2
       idle-timeout: 300000
       max-lifetime: 1800000
       connection-test-query: SELECT 1
@@ -25,24 +23,17 @@ spring:
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO:validate} # Use validate for production, update for first deployment
+      ddl-auto: validate # Use validate for production, update for first deployment
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: false
         jdbc:
-          batch_size: 25
-          batch_versioned_data: true
+          batch_size: 20
         order_inserts: true
         order_updates: true
-        connection:
-          provider_disables_autocommit: false # Changed to false to fix autocommit issue
-        hbm2ddl:
-          create_namespaces: false
-        schema_update:
-          unique_constraint_strategy: RECREATE_QUIETLY
     show-sql: false
-    open-in-view: false # Disable to prevent warning
+  
     
   redis:
     host: ${REDIS_HOST:prod-redis-endpoint}
@@ -51,21 +42,17 @@ spring:
     timeout: 5s
     lettuce:
       pool:
-        max-active: 10
-        max-idle: 8
-        min-idle: 2
-        max-wait: -1ms
+        max-active: 8
+        max-idle: 5
+        min-idle: 1
     
   cache:
     type: redis
     redis:
-      time-to-live: 3600000 # 1 hour
+      time-to-live: 1800000 # 30 minutes
       cache-null-values: false
-      enable-statistics: true
     
   security:
-    user:
-      password: ${SPRING_SECURITY_USER_PASSWORD:disabled}
     jwt:
       # Production JWT secret from environment variable or AWS Secrets Manager
       secret-key: ${JWT_SECRET_KEY:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
@@ -79,83 +66,57 @@ spring:
     properties:
       mail:
         smtp:
-          auth: true
+          auth: false
           starttls:
-            enable: true
-            required: true
-          ssl:
-            trust: ${MAIL_HOST:email-smtp.us-east-1.amazonaws.com}
-          connectiontimeout: 5000
-          timeout: 5000
-          writetimeout: 5000
+            enable: false
 
 server:
   port: ${SERVER_PORT:8082}
   servlet:
-    context-path: ${SERVER_SERVLET_CONTEXT_PATH:}
+    context-path: ${SERVER_SERVLET_CONTEXT_PATH:/api}
   error:
-    include-message: never
-    include-binding-errors: never
-    include-stacktrace: never # Never expose stack traces in production
+    include-message: always # Show messages in staging for debugging
+    include-binding-errors: always
+    include-stacktrace: on-param # Show stack trace with ?trace=true
   compression:
     enabled: true
     mime-types: application/json,application/xml,text/html,text/xml,text/plain
-  http2:
-    enabled: true
   forward-headers-strategy: native # For AWS ALB
-  shutdown: graceful # Allow graceful shutdown for health checks
 
 springdoc:
   api-docs:
     path: /v3/api-docs
-    enabled: ${SWAGGER_ENABLED:true} # Enabled for production
+    enabled: true # Enabled for production
   swagger-ui:
     path: /swagger-ui.html
-    enabled: ${SWAGGER_ENABLED:true}
+    enabled: true
+    config-url: /api/v3/api-docs/swagger-config
+    url: /api/v3/api-docs
+    try-it-out-enabled: true
     
 logging:
   level:
-    root: WARN
+    root: INFO
     com.sabpaisa.tokenization: INFO
-    org.springframework.web: WARN
-    org.springframework.security: WARN
-    org.hibernate: WARN
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    org.hibernate: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
   file:
-    name: /var/log/sabpaisa/tokenization-service.log
+    name: /var/log/sabpaisa/tokenization-service-prod.log
     max-size: 10MB
-    max-history: 30
+    max-history: 15
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: "*"
       base-path: /actuator
   endpoint:
     health:
       show-details: always
-      probes:
-        enabled: true
-      group:
-        readiness:
-          include: readinessState
-        liveness:
-          include: livenessState
-  health:
-    livenessState:
-      enabled: true
-    readinessState:
-      enabled: true
-    redis:
-      enabled: false # Disable during startup to prevent delays
-    db:
-      enabled: false # Disable during startup to prevent delays
-    diskSpace:
-      enabled: false
-    ping:
-      enabled: true
   metrics:
     export:
       prometheus:
@@ -168,20 +129,18 @@ app:
     enabled: true
     master-key: ${ENCRYPTION_MASTER_KEY:dGVzdGVuY3J5cHRpb25rZXlmb3Jwcm9kdWN0aW9uMTIzNDU2Nzg5MGFiY2RlZg==}
     algorithm: AES/GCM/NoPadding
-    key-rotation-days: 90
-    exclude-paths: /actuator/**,/v3/api-docs/**
+    exclude-paths: /actuator/**,/v3/api-docs/**,/swagger-ui/**
   
   # Notification configuration
   notification:
     enabled: true
     from-email: ${NOTIFICATION_FROM_EMAIL:noreply@sabpaisa.com}
-    reply-to-email: ${NOTIFICATION_REPLY_TO:support@sabpaisa.com}
     async: true
-    retry-attempts: 3
+    retry-attempts: 2
   
   # SMS configuration
   sms:
-    provider: ${SMS_PROVIDER:aws-sns}
+    provider: ${SMS_PROVIDER:mock}
     api-key: ${SMS_API_KEY:dummy-sms-key-prod}
     sender-id: ${SMS_SENDER_ID:SBPAIS}
     region: ${AWS_REGION:ap-south-1}
@@ -189,24 +148,23 @@ app:
   # Monetization configuration
   monetization:
     enabled: true
-    free-tier-tokens: ${FREE_TIER_TOKENS:1000}
-    rate-limit-per-minute: 100
-    rate-limit-per-hour: 1000
+    free-tier-tokens: ${FREE_TIER_TOKENS:5000}
+    rate-limit-per-minute: 200
+    rate-limit-per-hour: 5000
   
   # Scheduled tasks
   scheduling:
     enabled: true
-    thread-pool-size: 5
+    thread-pool-size: 3
     
   # Security configuration
   security:
     rate-limiting:
       enabled: true
-      requests-per-minute: 60
-      requests-per-hour: 1000
+      requests-per-minute: 120
+      requests-per-hour: 2000
     ip-whitelist:
-      enabled: ${IP_WHITELIST_ENABLED:false}
-      allowed-ips: ${ALLOWED_IPS:}
+      enabled: false
     
   # AWS configuration
   aws:
@@ -246,22 +204,19 @@ resilience4j:
   circuitbreaker:
     instances:
       payment-service:
-        sliding-window-size: 100
-        permitted-number-of-calls-in-half-open-state: 10
-        wait-duration-in-open-state: 60s
-        failure-rate-threshold: 50
+        sliding-window-size: 50
+        permitted-number-of-calls-in-half-open-state: 5
+        wait-duration-in-open-state: 30s
+        failure-rate-threshold: 60
         event-consumer-buffer-size: 10
   retry:
     instances:
       payment-service:
-        max-attempts: 3
-        wait-duration: 1s
-        retry-exceptions:
-          - java.io.IOException
-          - java.net.SocketTimeoutException
+        max-attempts: 2
+        wait-duration: 500ms
   ratelimiter:
     instances:
       api:
-        limit-for-period: 1000
+        limit-for-period: 2000
         limit-refresh-period: 1m
         timeout-duration: 0s
