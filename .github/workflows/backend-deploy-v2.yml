@@ -380,7 +380,7 @@ jobs:
                 "interval": 300,
                 "timeout": 30,
                 "retries": 10,
-                "startPeriod": 600
+                "startPeriod": 300
               }
             }
           ]
