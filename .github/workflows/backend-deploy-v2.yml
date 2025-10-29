@@ -379,7 +379,7 @@ jobs:
                 "command": ["CMD-SHELL", "echo 'healthy' || exit 0"],
                 "interval": 300,
                 "timeout": 30,
-                "retries": 100,
+                "retries": 10,
                 "startPeriod": 600
               }
             }
