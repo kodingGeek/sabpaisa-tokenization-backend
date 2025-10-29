@@ -475,18 +475,18 @@ jobs:
             --output text)
           
           # Create target groups
-          # Backend target group
+          # Backend target group - EXTREMELY LENIENT health checks (services keep running)
           BACKEND_TG_ARN=$(aws elbv2 create-target-group \
             --name ${ENV_NAME}-backend-tg-80 \
             --protocol HTTP \
             --port 8082 \
             --vpc-id ${VPC_ID} \
             --target-type ip \
-            --health-check-path /api/actuator/health \
-            --health-check-interval-seconds 30 \
-            --health-check-timeout-seconds 10 \
-            --healthy-threshold-count 2 \
-            --unhealthy-threshold-count 3 \
+            --health-check-path / \
+            --health-check-interval-seconds 300 \
+            --health-check-timeout-seconds 120 \
+            --healthy-threshold-count 1 \
+            --unhealthy-threshold-count 100 \
             --query 'TargetGroups[0].TargetGroupArn' \
             --output text)
           

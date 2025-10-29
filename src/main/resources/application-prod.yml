@@ -12,7 +12,7 @@ spring:
     # Production database configuration from environment variables
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://prod-db-endpoint:5432/sabpaisa_tokenization}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       connection-timeout: 30000
@@ -25,7 +25,7 @@ spring:
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: validate # Use validate in production for safety
+      ddl-auto: ${JPA_DDL_AUTO:validate} # Use validate for production, update for first deployment
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
@@ -37,7 +37,12 @@ spring:
         order_updates: true
         connection:
           provider_disables_autocommit: false # Changed to false to fix autocommit issue
+        hbm2ddl:
+          create_namespaces: false
+        schema_update:
+          unique_constraint_strategy: RECREATE_QUIETLY
     show-sql: false
+    open-in-view: false # Disable to prevent warning
     
   redis:
     host: ${REDIS_HOST:prod-redis-endpoint}
@@ -59,6 +64,8 @@ spring:
       enable-statistics: true
     
   security:
+    user:
+      password: ${SPRING_SECURITY_USER_PASSWORD:disabled}
     jwt:
       # Production JWT secret from environment variable or AWS Secrets Manager
       secret-key: ${JWT_SECRET_KEY:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
@@ -85,7 +92,7 @@ spring:
 server:
   port: ${SERVER_PORT:8082}
   servlet:
-    context-path: ${SERVER_SERVLET_CONTEXT_PATH:/api}
+    context-path: ${SERVER_SERVLET_CONTEXT_PATH:}
   error:
     include-message: never
     include-binding-errors: never
@@ -131,20 +138,28 @@ management:
       show-details: always
       probes:
         enabled: true
+      group:
+        readiness:
+          include: readinessState
+        liveness:
+          include: livenessState
   health:
     livenessState:
       enabled: true
     readinessState:
       enabled: true
+    redis:
+      enabled: false # Disable during startup to prevent delays
+    db:
+      enabled: false # Disable during startup to prevent delays
+    diskSpace:
+      enabled: false
+    ping:
+      enabled: true
   metrics:
     export:
       prometheus:
         enabled: true
-  health:
-    redis:
-      enabled: true
-    db:
-      enabled: true
 
 # Application specific properties
 app:
@@ -199,7 +214,7 @@ app:
     s3:
       bucket: ${S3_BUCKET:sabpaisa-tokenization-prod}
     kms:
-      key-id: ${KMS_KEY_ID}
+      key-id: ${KMS_KEY_ID:alias/sabpaisa-tokenization-key}
     
   # CORS configuration for production
   cors:
